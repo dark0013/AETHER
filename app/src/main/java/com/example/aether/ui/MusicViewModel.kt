@@ -17,6 +17,7 @@ import com.example.aether.analysis.TransitEngine
 import com.example.aether.data.MusicRepository
 import com.example.aether.data.db.entities.DensityTapeEntity
 import com.example.aether.data.db.entities.MarkEntity
+import com.example.aether.data.db.entities.PlaylistSummary
 import com.example.aether.data.db.entities.ProfileEntity
 import com.example.aether.model.Song
 import com.example.aether.service.PlaybackService
@@ -76,6 +77,12 @@ class MusicViewModel(
             it.artist.contains(query, ignoreCase = true) 
         }
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val playlists: StateFlow<List<PlaylistSummary>> = repository.getPlaylistsFlow()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    private val _activePlaylistName = MutableStateFlow<String?>(null)
+    val activePlaylistName: StateFlow<String?> = _activePlaylistName.asStateFlow()
 
     private val _currentSong = MutableStateFlow<Song?>(null)
     val currentSong: StateFlow<Song?> = _currentSong.asStateFlow()
@@ -184,6 +191,7 @@ class MusicViewModel(
     private var audioManager: AudioManager? = null
     private var volumeStepAccumulator = 0f
     private var playFirstWhenControllerReady = false
+    private var activePlaylistId: Long? = null
     
     private val playedHistory = mutableListOf<Long>()
     private val maxHistorySize = 8
@@ -308,7 +316,11 @@ class MusicViewModel(
 
                     // Si la canción terminó automáticamente, preparar la siguiente por similitud
                     // EXCEPTO en modo Ritual
-                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && newSong != null && !_isRitualMode.value) {
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO &&
+                        newSong != null &&
+                        !_isRitualMode.value &&
+                        activePlaylistId == null
+                    ) {
                         viewModelScope.launch {
                             val nextSuggestion = suggestNextSong(newSong)
                             if (nextSuggestion != null) {
@@ -379,27 +391,70 @@ class MusicViewModel(
     }
 
     fun playSong(song: Song) {
-        val controller = mediaController ?: return
-        
-        // Cargar lista actual al controlador si no está
-        if (controller.mediaItemCount == 0) {
-            val mediaItems = songs.value.map { s ->
-                MediaItem.Builder()
-                    .setMediaId(s.id.toString())
-                    .setUri(s.contentUri)
-                    .build()
-            }
-            controller.setMediaItems(mediaItems)
-        }
+        playQueue(songs.value, songs.value.indexOfFirst { it.id == song.id }, playlistId = null, playlistName = null)
+    }
 
-        val index = songs.value.indexOfFirst { it.id == song.id }
-        if (index != -1) {
-            controller.seekTo(index, 0)
-            controller.prepare()
-            controller.play()
+    fun playPlaylist(playlistId: Long, startIndex: Int = 0) {
+        viewModelScope.launch {
+            val playlist = repository.getPlaylist(playlistId) ?: return@launch
+            val tracks = repository.getPlaylistSongs(playlistId)
+            if (tracks.isEmpty()) {
+                _userNotice.value = UserNotice("La playlist está vacía")
+                return@launch
+            }
+            playQueue(tracks, startIndex.coerceIn(0, tracks.lastIndex), playlistId, playlist.name)
         }
+    }
+
+    private fun playQueue(
+        queue: List<Song>,
+        startIndex: Int,
+        playlistId: Long?,
+        playlistName: String?
+    ) {
+        val controller = mediaController ?: return
+        if (queue.isEmpty() || startIndex < 0) return
+        activePlaylistId = playlistId
+        _activePlaylistName.value = playlistName
+        controller.shuffleModeEnabled = false
+        controller.setMediaItems(queue.map { it.toMediaItem() }, startIndex, 0L)
+        controller.prepare()
+        controller.play()
+        val song = queue[startIndex]
         _currentSong.value = song
         analysisScheduler?.boostAnalysis(song.id)
+        if (playlistName != null) {
+            _userNotice.value = UserNotice("Reproduciendo: $playlistName")
+        }
+    }
+
+    private fun Song.toMediaItem(): MediaItem = MediaItem.Builder()
+        .setMediaId(id.toString())
+        .setUri(contentUri)
+        .build()
+
+    suspend fun loadPlaylistEditor(id: Long?): Pair<String, List<Song>> {
+        if (id == null) return "" to emptyList()
+        val playlist = repository.getPlaylist(id) ?: return "" to emptyList()
+        return playlist.name to repository.getPlaylistSongs(id)
+    }
+
+    fun savePlaylist(id: Long?, name: String, songIds: List<Long>, onSaved: (Long) -> Unit) {
+        viewModelScope.launch {
+            val savedId = repository.savePlaylist(id, name, songIds)
+            _userNotice.value = UserNotice("Playlist guardada")
+            onSaved(savedId)
+        }
+    }
+
+    fun deletePlaylist(id: Long) {
+        viewModelScope.launch {
+            if (activePlaylistId == id) {
+                activePlaylistId = null
+                _activePlaylistName.value = null
+            }
+            repository.deletePlaylist(id)
+        }
     }
 
     fun togglePlayPause() {

@@ -29,6 +29,8 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.example.aether.R
 import com.example.aether.model.Song
+import com.example.aether.ui.playlist.PlaylistEditorScreen
+import com.example.aether.ui.playlist.PlaylistListPanel
 import com.example.aether.ui.presence.PresenceScreen
 import com.example.aether.ui.session.SessionMapScreen
 
@@ -36,6 +38,7 @@ import com.example.aether.ui.session.SessionMapScreen
 @Composable
 fun MusicApp(viewModel: MusicViewModel) {
     val songs by viewModel.filteredSongs.collectAsState()
+    val allSongs by viewModel.songs.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val progress by viewModel.playbackProgress.collectAsState()
@@ -44,8 +47,9 @@ fun MusicApp(viewModel: MusicViewModel) {
     val notice by viewModel.userNotice.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var activeScreen by remember { mutableStateOf("presence") } // "presence", "library", "map"
+    var activeScreen by remember { mutableStateOf("presence") } // "presence", "library", "map", "playlist_edit"
     var showNowPlaying by remember { mutableStateOf(false) }
+    var editingPlaylistId by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(activeScreen) {
         viewModel.setHighRefreshRate(activeScreen == "presence")
@@ -69,7 +73,19 @@ fun MusicApp(viewModel: MusicViewModel) {
                     progress = progress,
                     searchQuery = searchQuery,
                     onBack = { activeScreen = "presence" },
-                    onShowNowPlaying = { showNowPlaying = true }
+                    onShowNowPlaying = { showNowPlaying = true },
+                    onEditPlaylist = { id ->
+                        editingPlaylistId = id
+                        activeScreen = "playlist_edit"
+                    }
+                )
+            }
+            "playlist_edit" -> {
+                PlaylistEditorScreen(
+                    viewModel = viewModel,
+                    playlistId = editingPlaylistId,
+                    librarySongs = allSongs,
+                    onBack = { activeScreen = "library" }
                 )
             }
             "map" -> {
@@ -172,8 +188,13 @@ fun LibraryScreen(
     progress: Long,
     searchQuery: String,
     onBack: () -> Unit,
-    onShowNowPlaying: () -> Unit
+    onShowNowPlaying: () -> Unit,
+    onEditPlaylist: (Long?) -> Unit
 ) {
+    val playlists by viewModel.playlists.collectAsState()
+    var selectedTab by remember { mutableStateOf(0) }
+    var pendingDeleteId by remember { mutableStateOf<Long?>(null) }
+
     Scaffold(
         topBar = {
             AETHERTopBar(
@@ -193,26 +214,77 @@ fun LibraryScreen(
                 )
             }
         },
+        floatingActionButton = {
+            if (selectedTab == 1) {
+                FloatingActionButton(onClick = { onEditPlaylist(null) }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Nueva playlist")
+                }
+            }
+        },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (songs.isEmpty()) {
-                EmptyState(
-                    isSearch = searchQuery.isNotEmpty(),
-                    onScan = { viewModel.loadSongs() }
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("Música") }
                 )
-            } else {
-                SongList(
-                    songs = songs,
-                    currentSongId = currentSong?.id,
-                    onSongClick = { viewModel.playSong(it) }
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Playlists") }
                 )
             }
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (selectedTab == 0) {
+                    if (songs.isEmpty()) {
+                        EmptyState(
+                            isSearch = searchQuery.isNotEmpty(),
+                            onScan = { viewModel.loadSongs() }
+                        )
+                    } else {
+                        SongList(
+                            songs = songs,
+                            currentSongId = currentSong?.id,
+                            onSongClick = { viewModel.playSong(it) }
+                        )
+                    }
+                } else {
+                    PlaylistListPanel(
+                        playlists = playlists,
+                        onOpen = { onEditPlaylist(it) },
+                        onPlay = { viewModel.playPlaylist(it) },
+                        onDelete = { pendingDeleteId = it }
+                    )
+                }
+            }
         }
+    }
+
+    pendingDeleteId?.let { id ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteId = null },
+            title = { Text("Eliminar playlist") },
+            text = { Text("Se borrará la lista. Las canciones siguen en tu biblioteca.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deletePlaylist(id)
+                    pendingDeleteId = null
+                }) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteId = null }) { Text("Cancelar") }
+            }
+        )
     }
 }
 

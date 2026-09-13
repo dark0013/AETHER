@@ -9,6 +9,8 @@ import com.example.aether.data.db.AetherDatabase
 import com.example.aether.data.db.entities.AnalysisStatus
 import com.example.aether.data.db.entities.DensityTapeEntity
 import com.example.aether.data.db.entities.MarkEntity
+import com.example.aether.data.db.entities.PlaylistEntity
+import com.example.aether.data.db.entities.PlaylistSummary
 import com.example.aether.data.db.entities.ProfileEntity
 import com.example.aether.data.db.entities.SessionEntity
 import com.example.aether.data.db.entities.toDomain
@@ -27,7 +29,40 @@ class MusicRepository(private val context: Context) {
     private val tapeDao = db.densityTapeDao()
     private val markDao = db.markDao()
     private val sessionDao = db.sessionDao()
+    private val playlistDao = db.playlistDao()
     private val analysisScheduler = AnalysisScheduler.getInstance(context)
+
+    fun getPlaylistsFlow(): Flow<List<PlaylistSummary>> = playlistDao.observePlaylists()
+
+    suspend fun getPlaylist(id: Long): PlaylistEntity? = withContext(Dispatchers.IO) {
+        playlistDao.getPlaylist(id)
+    }
+
+    suspend fun getPlaylistSongs(playlistId: Long): List<Song> = withContext(Dispatchers.IO) {
+        playlistDao.getSongsForPlaylist(playlistId).map { it.toDomain() }
+    }
+
+    suspend fun savePlaylist(id: Long?, name: String, songIds: List<Long>): Long = withContext(Dispatchers.IO) {
+        val trimmed = name.trim().ifBlank { "Lista sin nombre" }
+        val now = System.currentTimeMillis()
+        val playlistId = if (id == null) {
+            playlistDao.insertPlaylist(PlaylistEntity(name = trimmed, createdAtMs = now, updatedAtMs = now))
+        } else {
+            val existing = playlistDao.getPlaylist(id)
+            if (existing != null) {
+                playlistDao.updatePlaylist(existing.copy(name = trimmed, updatedAtMs = now))
+                id
+            } else {
+                playlistDao.insertPlaylist(PlaylistEntity(name = trimmed, createdAtMs = now, updatedAtMs = now))
+            }
+        }
+        playlistDao.replaceTracks(playlistId, songIds)
+        playlistId
+    }
+
+    suspend fun deletePlaylist(id: Long) = withContext(Dispatchers.IO) {
+        playlistDao.deletePlaylist(id)
+    }
 
     fun getSongsFlow(): Flow<List<Song>> = songDao.getAllSongs().map { entities ->
         entities.map { it.toDomain() }
