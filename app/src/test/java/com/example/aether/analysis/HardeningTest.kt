@@ -61,6 +61,25 @@ class HardeningTest {
     }
 
     @Test
+    fun transitSnapsEndToBeatWhenConfidenceHigh() {
+        val current = com.example.aether.data.db.entities.ProfileEntity(
+            songId = 1,
+            bpm = 120.0,
+            bpmConfidence = 0.8,
+            beatGridOffsetMs = 0
+        )
+        val next = current.copy(songId = 2)
+        val plan = TransitEngine.planCrossfade(
+            currentDurationMs = 180_200L,
+            currentTape = null,
+            nextTape = null,
+            currentProfile = current,
+            nextProfile = next
+        )
+        assertEquals(179_500L, plan.endPointMs)
+    }
+
+    @Test
     fun pinchUsesCumulativeScaleNotPerEventZoom() {
         assertFalse(PresenceGestureMath.isPinchScale(0.98f))
         assertTrue(PresenceGestureMath.isPinchScale(0.80f))

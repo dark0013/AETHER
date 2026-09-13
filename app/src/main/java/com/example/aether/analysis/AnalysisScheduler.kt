@@ -44,7 +44,7 @@ class AnalysisScheduler private constructor(context: Context) {
         }
     }
 
-    fun scheduleBackgroundAnalysis(songId: Long) {
+    fun scheduleBackgroundAnalysis(songId: Long, replace: Boolean = false) {
         val request = OneTimeWorkRequestBuilder<AnalysisWorker>()
             .setInputData(workDataOf("song_id" to songId))
             .setConstraints(
@@ -57,9 +57,17 @@ class AnalysisScheduler private constructor(context: Context) {
 
         workManager.enqueueUniqueWork(
             "analysis_$songId",
-            ExistingWorkPolicy.KEEP,
+            if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
             request
         )
+    }
+
+    fun enqueueOutdatedProfiles() {
+        scope.launch {
+            db.profileDao().getOutdatedSongIds(RhythmAnalysis.SCHEMA_VERSION).forEach { id ->
+                scheduleBackgroundAnalysis(id, replace = true)
+            }
+        }
     }
 
     fun boostAnalysis(songId: Long) {
@@ -79,7 +87,11 @@ class AnalysisScheduler private constructor(context: Context) {
 
         val songEntity = songDao.getSongById(songId) ?: return@withLock AnalysisOutcome.MISSING
         val existing = profileDao.getProfileForSong(songId)
-        if (existing?.status == AnalysisStatus.READY) return@withLock AnalysisOutcome.SKIPPED
+        if (existing?.status == AnalysisStatus.READY &&
+            existing.schemaVersion >= RhythmAnalysis.SCHEMA_VERSION
+        ) {
+            return@withLock AnalysisOutcome.SKIPPED
+        }
 
         if (!isUriReadable(songEntity.contentUri)) {
             persistError(songId, "archivo ilegible")

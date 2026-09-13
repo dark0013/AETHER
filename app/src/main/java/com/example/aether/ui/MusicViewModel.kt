@@ -82,6 +82,9 @@ class MusicViewModel(
     val playlists: StateFlow<List<PlaylistSummary>> = repository.getPlaylistsFlow()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    val analysisStatuses: StateFlow<Map<Long, String>> = repository.observeAnalysisStatuses()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyMap())
+
     private val _activePlaylistName = MutableStateFlow<String?>(null)
     val activePlaylistName: StateFlow<String?> = _activePlaylistName.asStateFlow()
 
@@ -201,6 +204,7 @@ class MusicViewModel(
         viewModelScope.launch {
             repository.syncWithMediaStore()
             repository.rescanImported()
+            analysisScheduler?.enqueueOutdatedProfiles()
         }
     }
 
@@ -296,6 +300,7 @@ class MusicViewModel(
 
     fun initController(context: Context) {
         analysisScheduler = AnalysisScheduler.getInstance(context)
+        analysisScheduler?.enqueueOutdatedProfiles()
         audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
         syncVolumeFromSystem()
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
@@ -333,7 +338,13 @@ class MusicViewModel(
                             if (currentSessionId == null) {
                                 currentSessionId = repository.startSession(if (_isRitualMode.value) "ritual" else "presence")
                             }
-                            currentSessionId?.let { repository.appendTrackToSession(it, newSong.id) }
+                            val startReason = when {
+                                _isRitualMode.value -> "ritual"
+                                activePlaylistId != null -> "playlist"
+                                reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "similarity"
+                                else -> "user"
+                            }
+                            currentSessionId?.let { repository.appendTrackToSession(it, newSong.id, startReason) }
                         }
                     }
 

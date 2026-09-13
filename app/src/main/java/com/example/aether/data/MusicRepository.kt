@@ -83,6 +83,9 @@ class MusicRepository(private val context: Context) {
     }
 
     fun getProfileFlow(songId: Long): Flow<ProfileEntity?> = profileDao.observeProfileForSong(songId)
+
+    fun observeAnalysisStatuses(): Flow<Map<Long, String>> =
+        profileDao.observeStatuses().map { rows -> rows.associate { it.songId to it.status } }
     
     fun getTapeFlow(songId: Long): Flow<DensityTapeEntity?> = tapeDao.observeTapeForSong(songId)
 
@@ -100,14 +103,19 @@ class MusicRepository(private val context: Context) {
         sessionDao.insertSession(SessionEntity(mode = mode))
     }
 
-    suspend fun appendTrackToSession(sessionId: Long, songId: Long) = withContext(Dispatchers.IO) {
+    suspend fun appendTrackToSession(sessionId: Long, songId: Long, reason: String = "user") = withContext(Dispatchers.IO) {
         val session = sessionDao.getSessionById(sessionId) ?: return@withContext
         val updatedTracks = if (session.trackIds.isBlank()) {
             songId.toString()
         } else {
             "${session.trackIds},$songId"
         }
-        sessionDao.updateSession(session.copy(trackIds = updatedTracks))
+        val updatedReasons = if (session.startReasons.isBlank()) {
+            reason
+        } else {
+            "${session.startReasons},$reason"
+        }
+        sessionDao.updateSession(session.copy(trackIds = updatedTracks, startReasons = updatedReasons))
     }
 
     suspend fun endSession(sessionId: Long) = withContext(Dispatchers.IO) {

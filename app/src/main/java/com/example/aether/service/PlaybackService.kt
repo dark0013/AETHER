@@ -15,6 +15,8 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.example.aether.util.AetherLog
 import com.google.common.util.concurrent.Futures
+import kotlin.math.exp
+import kotlin.math.ln
 import com.google.common.util.concurrent.ListenableFuture
 
 class PlaybackService : MediaSessionService() {
@@ -130,14 +132,14 @@ class PlaybackService : MediaSessionService() {
         val oldPlayer = activePlayer ?: return
         val nextIndex = oldPlayer.nextMediaItemIndex
         if (nextIndex == C.INDEX_UNSET) {
-            nextEndPointMs = -1L
+            fallbackHardCut()
             return
         }
 
         val nextItem = try {
             oldPlayer.getMediaItemAt(nextIndex)
         } catch (_: Exception) {
-            nextEndPointMs = -1L
+            fallbackHardCut()
             return
         }
 
@@ -163,18 +165,36 @@ class PlaybackService : MediaSessionService() {
         nextEndPointMs = -1L
     }
 
+    private fun fallbackHardCut() {
+        val player = activePlayer ?: return
+        nextEndPointMs = -1L
+        if (!player.hasNextMediaItem()) return
+        fadeVolume(player, player.volume.coerceAtLeast(0.01f), 0f, 80L) {
+            player.seekToNextMediaItem()
+            player.volume = 1f
+            player.prepare()
+            player.play()
+        }
+    }
+
     private fun fadeVolume(player: Player, from: Float, to: Float, duration: Long, onEnd: (() -> Unit)? = null) {
-        val steps = 10
+        val steps = 12
         val interval = (duration / steps).coerceAtLeast(16L)
-        val delta = (to - from) / steps
+        val start = from.coerceIn(0.0001f, 1f)
+        val end = to.coerceIn(0.0001f, 1f)
+        val logStart = ln(start.toDouble())
+        val logEnd = ln(end.toDouble())
 
         var currentStep = 0
         val runnable = object : Runnable {
             override fun run() {
                 if (currentStep <= steps) {
+                    val t = currentStep / steps.toFloat()
                     try {
-                        player.volume = (from + (delta * currentStep)).coerceIn(0f, 1f)
+                        val gain = exp(logStart + (logEnd - logStart) * t).toFloat()
+                        player.volume = if (to == 0f && currentStep == steps) 0f else gain.coerceIn(0f, 1f)
                     } catch (_: Exception) {
+                        fadeRunnables.remove(this)
                         onEnd?.invoke()
                         return
                     }

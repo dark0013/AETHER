@@ -324,9 +324,11 @@ fun LibraryScreen(
                             onImportFiles = onImportFiles
                         )
                     } else {
+                        val statuses by viewModel.analysisStatuses.collectAsState()
                         SongList(
                             songs = songs,
                             currentSongId = currentSong?.id,
+                            analysisStatuses = statuses,
                             onSongClick = { viewModel.playSong(it) }
                         )
                     }
@@ -441,6 +443,7 @@ fun AETHERTopBar(
 fun SongList(
     songs: List<Song>,
     currentSongId: Long?,
+    analysisStatuses: Map<Long, String> = emptyMap(),
     onSongClick: (Song) -> Unit
 ) {
     LazyColumn(
@@ -450,6 +453,7 @@ fun SongList(
             SongItem(
                 song = song,
                 isSelected = song.id == currentSongId,
+                analysisStatus = analysisStatuses[song.id],
                 onClick = { onSongClick(song) }
             )
         }
@@ -457,7 +461,7 @@ fun SongList(
 }
 
 @Composable
-fun SongItem(song: Song, isSelected: Boolean, onClick: () -> Unit) {
+fun SongItem(song: Song, isSelected: Boolean, analysisStatus: String? = null, onClick: () -> Unit) {
     val backgroundColor by animateColorAsState(
         if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
         else Color.Transparent, label = "bg"
@@ -520,7 +524,19 @@ fun SongItem(song: Song, isSelected: Boolean, onClick: () -> Unit) {
         }
 
         Spacer(modifier = Modifier.width(8.dp))
-        
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(
+                    when (analysisStatus) {
+                        "READY" -> MaterialTheme.colorScheme.primary
+                        "ERROR" -> Color(0xFFE57373)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    }
+                )
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = formatDuration(song.duration),
             style = MaterialTheme.typography.bodySmall,

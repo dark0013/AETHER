@@ -85,6 +85,9 @@ fun PresenceScreen(
             features = audioFeatures,
             isPlaying = isPlaying,
             isRitual = isRitualMode,
+            progress = if ((currentSong?.duration ?: 0L) > 0) {
+                (progress.toFloat() / currentSong!!.duration).coerceIn(0f, 1f)
+            } else 0f,
             modifier = Modifier.fillMaxSize()
         )
 

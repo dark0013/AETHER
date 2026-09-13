@@ -15,6 +15,17 @@ interface ProfileDao {
     @Query("SELECT * FROM profiles WHERE status = 'READY'")
     suspend fun getAllReadyProfiles(): List<ProfileEntity>
 
+    @Query("SELECT songId FROM profiles WHERE schemaVersion < :version")
+    suspend fun getOutdatedSongIds(version: Int): List<Long>
+
+    @Query("SELECT songId, status FROM profiles")
+    fun observeStatuses(): Flow<List<ProfileStatusRow>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProfile(profile: ProfileEntity)
 }
+
+data class ProfileStatusRow(
+    val songId: Long,
+    val status: String
+)

@@ -46,21 +46,35 @@ object TransitEngine {
             preferLast = false
         ) ?: 0L
 
-        // 3. Calcular duración del fade
-        // Residual tEnd es el tiempo que queda hasta el final real
-        val residual = currentDurationMs - tEnd
-        var fadeDuration = residual.coerceIn(FADE_MIN_MS, FADE_MAX_MS)
-
-        // 4. Ajustar por Beat si hay confianza en el BPM
-        if (currentProfile != null && nextProfile != null) {
-            if (currentProfile.bpmConfidence ?: 0.0 > 0.45 && nextProfile.bpmConfidence ?: 0.0 > 0.45) {
-                // Lógica de alineación de fase (v1 simple: snap al beat más cercano)
-                // Esto se profundizará en la Fase 7
+        var alignedEnd = tEnd
+        val confA = currentProfile?.bpmConfidence ?: 0.0
+        val confB = nextProfile?.bpmConfidence ?: 0.0
+        val bpmA = currentProfile?.bpm ?: 0.0
+        val bpmB = nextProfile?.bpm ?: 0.0
+        if (confA >= RhythmAnalysis.ALIGN_CONFIDENCE &&
+            confB >= RhythmAnalysis.ALIGN_CONFIDENCE &&
+            bpmA > 0.0 && bpmB > 0.0
+        ) {
+            val ratio = bpmA / bpmB
+            if (ratio in RhythmAnalysis.ALIGN_RATIO_MIN..RhythmAnalysis.ALIGN_RATIO_MAX) {
+                val snapped = RhythmAnalysis.nearestBeatMs(
+                    tEnd,
+                    bpmA,
+                    currentProfile?.beatGridOffsetMs ?: 0
+                )
+                if (abs(snapped - tEnd) <= RhythmAnalysis.ALIGN_SNAP_MS) {
+                    alignedEnd = snapped.coerceIn(
+                        currentDurationMs - SEARCH_WINDOW_END_MS,
+                        currentDurationMs - ONSET_MIN_GAP_MS
+                    )
+                }
             }
         }
 
+        val fadeDuration = (currentDurationMs - alignedEnd).coerceIn(FADE_MIN_MS, FADE_MAX_MS)
+
         return TransitionPlan(
-            endPointMs = tEnd,
+            endPointMs = alignedEnd,
             startPointMs = tStart,
             fadeDurationMs = fadeDuration
         )

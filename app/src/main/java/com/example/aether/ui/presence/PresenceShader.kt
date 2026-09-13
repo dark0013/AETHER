@@ -26,10 +26,11 @@ fun PresenceVisualizer(
     features: RealtimeAudioFeatures,
     isPlaying: Boolean,
     isRitual: Boolean = false,
+    progress: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        AgslPresenceVisualizer(features, isPlaying, isRitual, modifier)
+        AgslPresenceVisualizer(features, isPlaying, isRitual, progress, modifier)
     } else {
         FallbackPresenceVisualizer(features, isPlaying, isRitual, modifier)
     }
@@ -43,6 +44,7 @@ private const val PRESENCE_SHADER_CODE = """
     uniform float uFlux;
     uniform float uOnset;
     uniform float uRitual;
+    uniform float uProgress;
 
     half4 main(float2 fragCoord) {
         float2 uv = fragCoord / uSize;
@@ -52,9 +54,10 @@ private const val PRESENCE_SHADER_CODE = """
         float3 ritualTint = float3(0.78, 0.38, 0.22);
         float3 tint = mix(presenceTint, ritualTint, uRitual);
         float dim = 1.0 - uRitual * 0.22;
-        float3 baseColor = tint * (0.8 + uEnergy * 0.4) * dim;
+        float drive = clamp(uEnergy + uFlux, 0.0, 1.0);
+        float3 baseColor = tint * (0.55 + uEnergy * 0.55) * dim;
 
-        float wave = sin(dist * 15.0 - uTime * (1.5 + uFlux * 4.0 * (1.0 - uRitual * 0.6))) * 0.1;
+        float wave = sin(dist * 15.0 - uTime * (0.4 + uFlux * 4.0) - uProgress * 6.28) * 0.1 * drive;
         float pulse = uOnset * 0.15 * (1.0 - uRitual * 0.4);
 
         float mask = smoothstep(0.45 + pulse + wave, 0.2 + wave, dist);
@@ -70,26 +73,38 @@ private fun AgslPresenceVisualizer(
     features: RealtimeAudioFeatures,
     isPlaying: Boolean,
     isRitual: Boolean,
+    progress: Float,
     modifier: Modifier = Modifier
 ) {
     val shader = remember { RuntimeShader(PRESENCE_SHADER_CODE) }
     var time by remember { mutableFloatStateOf(0f) }
     var smoothedOnset by remember { mutableFloatStateOf(0f) }
+    val pendingOnset = remember { booleanArrayOf(false) }
 
     LaunchedEffect(isPlaying, features.isOnset) {
-        if (isPlaying && features.isOnset) smoothedOnset = 1f
-        if (!isPlaying) smoothedOnset = 0f
+        if (isPlaying && features.isOnset) pendingOnset[0] = true
+        if (!isPlaying) {
+            pendingOnset[0] = false
+            smoothedOnset = 0f
+        }
     }
 
     LaunchedEffect(isPlaying) {
         if (!isPlaying) return@LaunchedEffect
         val startNs = withFrameNanos { it }
         val baseTime = time
+        var onsetStartNs = 0L
         while (true) {
             val now = withFrameNanos { it }
             time = baseTime + ((now - startNs) / 1_000_000_000f)
-            if (smoothedOnset > 0f) {
-                smoothedOnset = (smoothedOnset - 0.08f).coerceAtLeast(0f)
+            if (pendingOnset[0]) {
+                pendingOnset[0] = false
+                onsetStartNs = now
+                smoothedOnset = 1f
+            } else if (onsetStartNs > 0L) {
+                val elapsedMs = (now - onsetStartNs) / 1_000_000.0
+                smoothedOnset = (1.0 - elapsedMs / 180.0).toFloat().coerceIn(0f, 1f)
+                if (smoothedOnset <= 0f) onsetStartNs = 0L
             }
         }
     }
@@ -102,6 +117,7 @@ private fun AgslPresenceVisualizer(
         shader.setFloatUniform("uFlux", if (isPlaying) features.flux else 0f)
         shader.setFloatUniform("uOnset", if (isPlaying) smoothedOnset else 0f)
         shader.setFloatUniform("uRitual", if (isRitual) 1f else 0f)
+        shader.setFloatUniform("uProgress", progress.coerceIn(0f, 1f))
         drawRect(brush = ShaderBrush(shader))
     }
 }

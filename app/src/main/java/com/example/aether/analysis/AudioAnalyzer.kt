@@ -6,7 +6,6 @@ import com.example.aether.data.db.entities.AnalysisStatus
 import com.example.aether.data.db.entities.ProfileEntity
 import com.example.aether.util.AetherLog
 import java.util.LinkedList
-import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.min
 import kotlin.math.pow
@@ -20,8 +19,6 @@ class AudioAnalyzer(private val context: Context) {
         private const val HOP_SIZE = 2048
         private const val ONSET_THRESHOLD_K = 1.8f
         private const val ONSET_COOLDOWN_MS = 120.0
-        private const val MIN_BPM = 60.0
-        private const val MAX_BPM = 180.0
     }
 
     data class AnalysisResult(
@@ -104,12 +101,14 @@ class AudioAnalyzer(private val context: Context) {
             return null
         }
 
-        val bpmResult = estimateBpm(onsets)
+        val bpmResult = RhythmAnalysis.estimateBpm(onsets, hopMs)
+        val beatOffset = RhythmAnalysis.beatGridOffsetMs(onsets, hopMs, bpmResult.first)
         val energyMean = energyList.average().toFloat()
         val energyStd = calculateStdDev(energyList, energyMean)
         val centroidMean = centroidList.average().toFloat()
         val fluxMean = fluxList.average().toFloat()
-        val sectionBounds = detectSections(energyList)
+        val sectionBounds = RhythmAnalysis.detectSections(energyList, hopMs)
+        val loudness = RhythmAnalysis.loudnessDbfs(energyMean)
 
         val silenceRatio = energyList.count { it < 0.01f }.toFloat() / energyList.size
         val onsetDensity = onsets.count { it }.toFloat() /
@@ -124,7 +123,7 @@ class AudioAnalyzer(private val context: Context) {
         embedding[4] = (centroidMean / 5000f).coerceIn(0f, 1f)
         embedding[5] = (fluxMean * 5f).coerceIn(0f, 1f)
         embedding[6] = silenceRatio.coerceIn(0f, 1f)
-        embedding[7] = (energyMean * 1.5f).coerceIn(0f, 1f)
+        embedding[7] = RhythmAnalysis.loudnessNorm(loudness)
 
         val chunk15 = (energyList.size * 0.15).toInt().coerceAtLeast(1)
         val chunk50 = (energyList.size * 0.50).toInt().coerceAtLeast(1)
@@ -144,9 +143,13 @@ class AudioAnalyzer(private val context: Context) {
             profile = ProfileEntity(
                 songId = songId,
                 status = AnalysisStatus.READY,
+                schemaVersion = RhythmAnalysis.SCHEMA_VERSION,
                 analyzedAtMs = System.currentTimeMillis(),
+                hopMs = hopMs.toInt(),
                 bpm = bpmResult.first,
                 bpmConfidence = bpmResult.second,
+                beatGridOffsetMs = beatOffset,
+                loudnessApprox = loudness,
                 energyMean = energyMean.toDouble(),
                 energyStd = energyStd.toDouble(),
                 centroidMean = centroidMean.toDouble(),
@@ -161,47 +164,6 @@ class AudioAnalyzer(private val context: Context) {
             fluxTape = DspUtils.quantizeToUInt8(fluxList),
             onsetFlags = onsets.map { if (it) 1.toByte() else 0.toByte() }.toByteArray()
         )
-    }
-
-    private fun detectSections(energyList: List<Float>): List<Int> {
-        if (energyList.size < 100) return emptyList()
-
-        val sections = mutableListOf<Int>()
-        val frameDurationMs = (HOP_SIZE.toDouble() / AudioDecoder.TARGET_SAMPLE_RATE) * 1000
-
-        val windowSize = 80
-        for (i in windowSize until energyList.size - windowSize step 120) {
-            val prevAvg = energyList.subList(i - windowSize, i).average()
-            val nextAvg = energyList.subList(i, i + windowSize).average()
-
-            val diff = abs(prevAvg - nextAvg)
-            if (diff > 0.05f) {
-                sections.add((i * frameDurationMs).toInt())
-                if (sections.size >= 8) break
-            }
-        }
-        return sections
-    }
-
-    private fun estimateBpm(onsets: List<Boolean>): Pair<Double, Double> {
-        val onsetIndices = onsets.indices.filter { onsets[it] }
-        if (onsetIndices.size < 10) return 0.0 to 0.0
-
-        val intervals = mutableListOf<Int>()
-        for (i in 1 until onsetIndices.size) {
-            intervals.add(onsetIndices[i] - onsetIndices[i - 1])
-        }
-
-        val frameDurationMs = (HOP_SIZE.toDouble() / AudioDecoder.TARGET_SAMPLE_RATE) * 1000
-        val bpms = intervals.map { (60000.0 / (it * frameDurationMs)) }
-            .filter { it in MIN_BPM..MAX_BPM }
-
-        if (bpms.isEmpty()) return 0.0 to 0.0
-
-        val medianBpm = bpms.sorted()[bpms.size / 2]
-        val confidence = bpms.count { abs(it - medianBpm) < 5.0 }.toDouble() / bpms.size
-
-        return medianBpm to confidence.coerceIn(0.0, 1.0)
     }
 
     private fun calculateStdDev(data: List<Float>, mean: Float): Float {

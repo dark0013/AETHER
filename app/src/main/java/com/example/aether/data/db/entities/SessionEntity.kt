@@ -9,5 +9,6 @@ data class SessionEntity(
     val startTimeMs: Long = System.currentTimeMillis(),
     val endTimeMs: Long? = null,
     val mode: String, // "presence" | "ritual"
-    val trackIds: String = "" // Comma-separated track IDs
+    val trackIds: String = "", // Comma-separated track IDs
+    val startReasons: String = "" // similarity | user | playlist | ritual
 )

@@ -1,7 +1,7 @@
 # Informe de Avance — Proyecto AETHER
 
 **Fecha:** 13 de septiembre de 2026  
-**Estado Actual:** Producto usable (Presence + ritual + playlists + importación). Pendiente de cierre spec: ritmo (BPM / beat grid / cruce).
+**Estado Actual:** Spec v0.1 rítmico cerrado en código (BPM / grid / alignToBeat / loudness / secciones / fade exp / shader). Residual P2 menor.
 
 ## 1. Trabajo realizado
 
@@ -54,17 +54,15 @@ Base de datos Room **versión 6** (migraciones 4→5 playlists, 5→6 `songs.sou
 
 ---
 
-## 2. Qué falta (cierre spec v0.1)
+## 2. Cierre rítmico (13-sep, tarde)
 
-Camino crítico — se oye en los cruces:
+- `RhythmAnalysis`: autocorrelación BPM, beat grid, secciones, loudness.
+- `TransitEngine.alignToBeat`.
+- Fade exponencial + fallback 80 ms.
+- Shader `uProgress` + decay 180 ms.
+- Reanálisis schemaVersion 2; `startReasons`; badge de análisis en la lista.
 
-1. BPM por autocorrelación + `bpm = 0` si confianza &lt; 0.35.
-2. `beatGridOffsetMs` (hoy siempre `null`).
-3. `TransitEngine.alignToBeat` (el `if` está vacío).
-
-Luego: loudness dBFS, secciones 1 Hz / p80, fade exponencial, shader sin movimiento autónomo (`uProgress`).
-
-Detalle en `IMPLEMENTACION-FALTANTE-V01.md`.
+Pendiente menor: cola corta, agrupar por álbum, residuo visual al cruce. Ver `IMPLEMENTACION-FALTANTE-V01.md`.
 
 ---
 
