@@ -212,7 +212,9 @@ fun LibraryScreen(
 ) {
     val playlists by viewModel.playlists.collectAsState()
     var selectedTab by remember { mutableStateOf(0) }
-    var pendingDeleteId by remember { mutableStateOf<Long?>(null) }
+    var selectingPlaylists by remember { mutableStateOf(false) }
+    val selectedPlaylistIds = remember { mutableStateListOf<Long>() }
+    var pendingDeleteIds by remember { mutableStateOf<List<Long>>(emptyList()) }
 
     Scaffold(
         topBar = {
@@ -236,7 +238,16 @@ fun LibraryScreen(
             }
         },
         floatingActionButton = {
-            if (selectedTab == 1) {
+            if (selectedTab == 1 && selectingPlaylists) {
+                if (selectedPlaylistIds.isNotEmpty()) {
+                    FloatingActionButton(
+                        onClick = { pendingDeleteIds = selectedPlaylistIds.toList() },
+                        containerColor = MaterialTheme.colorScheme.error
+                    ) {
+                        Icon(Icons.Rounded.Delete, contentDescription = "Eliminar seleccionadas")
+                    }
+                }
+            } else if (selectedTab == 1) {
                 FloatingActionButton(onClick = { onEditPlaylist(null) }) {
                     Icon(Icons.Rounded.Add, contentDescription = "Nueva playlist")
                 }
@@ -265,6 +276,44 @@ fun LibraryScreen(
                     text = { Text("Playlists") }
                 )
             }
+            if (selectedTab == 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (selectingPlaylists) {
+                        TextButton(onClick = {
+                            selectingPlaylists = false
+                            selectedPlaylistIds.clear()
+                        }) { Text("Cancelar") }
+                        Spacer(modifier = Modifier.weight(1f))
+                        TextButton(
+                            onClick = {
+                                if (selectedPlaylistIds.size == playlists.size) {
+                                    selectedPlaylistIds.clear()
+                                } else {
+                                    selectedPlaylistIds.clear()
+                                    selectedPlaylistIds.addAll(playlists.map { it.id })
+                                }
+                            }
+                        ) {
+                            Text(if (selectedPlaylistIds.size == playlists.size) "Ninguna" else "Todas")
+                        }
+                        TextButton(
+                            enabled = selectedPlaylistIds.isNotEmpty(),
+                            onClick = { pendingDeleteIds = selectedPlaylistIds.toList() }
+                        ) {
+                            Text("Eliminar (${selectedPlaylistIds.size})")
+                        }
+                    } else {
+                        TextButton(onClick = { selectingPlaylists = true }) {
+                            Text("Seleccionar")
+                        }
+                    }
+                }
+            }
             Box(modifier = Modifier.fillMaxSize()) {
                 if (selectedTab == 0) {
                     if (songs.isEmpty()) {
@@ -284,28 +333,45 @@ fun LibraryScreen(
                 } else {
                     PlaylistListPanel(
                         playlists = playlists,
+                        selecting = selectingPlaylists,
+                        selectedIds = selectedPlaylistIds.toSet(),
                         onOpen = { onEditPlaylist(it) },
                         onPlay = { viewModel.playPlaylist(it) },
-                        onDelete = { pendingDeleteId = it }
+                        onToggleSelect = { id ->
+                            if (id in selectedPlaylistIds) selectedPlaylistIds.remove(id)
+                            else selectedPlaylistIds.add(id)
+                        },
+                        onEnterSelect = { id ->
+                            selectingPlaylists = true
+                            if (id !in selectedPlaylistIds) selectedPlaylistIds.add(id)
+                        }
                     )
                 }
             }
         }
     }
 
-    pendingDeleteId?.let { id ->
+    if (pendingDeleteIds.isNotEmpty()) {
+        val count = pendingDeleteIds.size
         AlertDialog(
-            onDismissRequest = { pendingDeleteId = null },
-            title = { Text("Eliminar playlist") },
-            text = { Text("Se borrará la lista. Las canciones siguen en tu biblioteca.") },
+            onDismissRequest = { pendingDeleteIds = emptyList() },
+            title = { Text(if (count == 1) "Eliminar playlist" else "Eliminar $count playlists") },
+            text = {
+                Text(
+                    if (count == 1) "Se borrará la lista. Las canciones siguen en tu biblioteca."
+                    else "Se borrarán $count listas. Las canciones siguen en tu biblioteca."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deletePlaylist(id)
-                    pendingDeleteId = null
+                    viewModel.deletePlaylists(pendingDeleteIds)
+                    pendingDeleteIds = emptyList()
+                    selectingPlaylists = false
+                    selectedPlaylistIds.clear()
                 }) { Text("Eliminar") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeleteId = null }) { Text("Cancelar") }
+                TextButton(onClick = { pendingDeleteIds = emptyList() }) { Text("Cancelar") }
             }
         )
     }

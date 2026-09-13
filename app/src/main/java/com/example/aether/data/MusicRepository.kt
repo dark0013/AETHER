@@ -42,8 +42,13 @@ class MusicRepository(private val context: Context) {
         playlistDao.getSongsForPlaylist(playlistId).map { it.toDomain() }
     }
 
+    class DuplicatePlaylistNameException : IllegalArgumentException("duplicate playlist name")
+    class InvalidPlaylistNameException : IllegalArgumentException("invalid playlist name")
+
     suspend fun savePlaylist(id: Long?, name: String, songIds: List<Long>): Long = withContext(Dispatchers.IO) {
-        val trimmed = name.trim().ifBlank { "Lista sin nombre" }
+        val trimmed = name.trim().take(MAX_PLAYLIST_NAME)
+        if (trimmed.isEmpty()) throw InvalidPlaylistNameException()
+        if (playlistDao.countByName(trimmed, id ?: -1L) > 0) throw DuplicatePlaylistNameException()
         val now = System.currentTimeMillis()
         val playlistId = if (id == null) {
             playlistDao.insertPlaylist(PlaylistEntity(name = trimmed, createdAtMs = now, updatedAtMs = now))
@@ -60,8 +65,17 @@ class MusicRepository(private val context: Context) {
         playlistId
     }
 
+    companion object {
+        const val MAX_PLAYLIST_NAME = 100
+    }
+
     suspend fun deletePlaylist(id: Long) = withContext(Dispatchers.IO) {
         playlistDao.deletePlaylist(id)
+    }
+
+    suspend fun deletePlaylists(ids: List<Long>) = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        playlistDao.deletePlaylists(ids)
     }
 
     fun getSongsFlow(): Flow<List<Song>> = songDao.getAllSongs().map { entities ->

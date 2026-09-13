@@ -28,6 +28,14 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE id = :id")
     suspend fun getPlaylist(id: Long): PlaylistEntity?
 
+    @Query(
+        """
+        SELECT COUNT(*) FROM playlists
+        WHERE LOWER(TRIM(name)) = LOWER(:name) AND id != :excludeId
+        """
+    )
+    suspend fun countByName(name: String, excludeId: Long): Int
+
     @Insert
     suspend fun insertPlaylist(playlist: PlaylistEntity): Long
 
@@ -36,6 +44,9 @@ interface PlaylistDao {
 
     @Query("DELETE FROM playlists WHERE id = :id")
     suspend fun deletePlaylist(id: Long)
+
+    @Query("DELETE FROM playlists WHERE id IN (:ids)")
+    suspend fun deletePlaylists(ids: List<Long>)
 
     @Query("SELECT * FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position ASC")
     suspend fun getTracks(playlistId: Long): List<PlaylistTrackEntity>

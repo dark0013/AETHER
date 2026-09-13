@@ -464,19 +464,33 @@ class MusicViewModel(
 
     fun savePlaylist(id: Long?, name: String, songIds: List<Long>, onSaved: (Long) -> Unit) {
         viewModelScope.launch {
-            val savedId = repository.savePlaylist(id, name, songIds)
-            _userNotice.value = UserNotice("Playlist guardada")
-            onSaved(savedId)
+            try {
+                val savedId = repository.savePlaylist(id, name, songIds)
+                _userNotice.value = UserNotice("Playlist guardada")
+                onSaved(savedId)
+            } catch (_: MusicRepository.DuplicatePlaylistNameException) {
+                _userNotice.value = UserNotice("Ya existe una playlist con ese nombre")
+            } catch (_: MusicRepository.InvalidPlaylistNameException) {
+                _userNotice.value = UserNotice("El nombre debe tener entre 1 y 100 caracteres")
+            }
         }
     }
 
     fun deletePlaylist(id: Long) {
+        deletePlaylists(listOf(id))
+    }
+
+    fun deletePlaylists(ids: List<Long>) {
+        if (ids.isEmpty()) return
         viewModelScope.launch {
-            if (activePlaylistId == id) {
+            if (activePlaylistId in ids) {
                 activePlaylistId = null
                 _activePlaylistName.value = null
             }
-            repository.deletePlaylist(id)
+            repository.deletePlaylists(ids)
+            _userNotice.value = UserNotice(
+                if (ids.size == 1) "Playlist eliminada" else "${ids.size} playlists eliminadas"
+            )
         }
     }
 
