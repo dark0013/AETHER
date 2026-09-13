@@ -2,10 +2,6 @@ package com.example.aether.ui.presence
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,7 +14,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -28,7 +23,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.aether.ui.MusicViewModel
 import com.example.aether.ui.formatDuration
-import kotlin.math.abs
 
 @Composable
 fun PresenceScreen(
@@ -44,7 +38,6 @@ fun PresenceScreen(
     val tape by viewModel.currentTape.collectAsState()
     val marks by viewModel.currentMarks.collectAsState()
     val profile by viewModel.currentProfile.collectAsState()
-    val volume by viewModel.volume.collectAsState()
     val audioFeatures by viewModel.realtimeAudioFeatures.collectAsState()
     
     val haptic = LocalHapticFeedback.current
@@ -59,50 +52,20 @@ fun PresenceScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { viewModel.toggleChrome() },
-                    onDoubleTap = { viewModel.togglePlayPause() },
-                    onLongPress = { 
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.addMark() 
-                    }
-                )
-            }
-            .pointerInput(Unit) {
-                var totalDragX = 0f
-                var totalDragY = 0f
-                detectDragGestures(
-                    onDragStart = { 
-                        totalDragX = 0f
-                        totalDragY = 0f
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        totalDragX += dragAmount.x
-                        totalDragY += dragAmount.y
-                        
-                        // Vertical drag for volume
-                        if (abs(totalDragY) > abs(totalDragX)) {
-                            val sensitivity = 0.005f
-                            viewModel.setVolume(volume - (dragAmount.y * sensitivity))
-                        }
-                    },
-                    onDragEnd = {
-                        // Horizontal flick threshold
-                        if (abs(totalDragX) > 300f && abs(totalDragX) > abs(totalDragY)) {
-                            if (totalDragX > 0) viewModel.skipNext() else viewModel.skipPrevious()
-                        }
-                    }
-                )
-            }
-            .pointerInput(Unit) {
-                detectTransformGestures { _, _, zoom, _ ->
-                    if (zoom < 0.8f) { // Pinch out (alejar)
-                        onOpenSessionMap()
-                    }
-                }
-            }
+            .presenceGestures(
+                isRitualMode = isRitualMode,
+                onTap = { viewModel.toggleChrome() },
+                onDoubleTap = { viewModel.togglePlayPause() },
+                onLongPress = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    viewModel.addMark()
+                },
+                onVolumeDelta = { viewModel.adjustVolume(it) },
+                onFlickNext = { viewModel.skipNext() },
+                onFlickPrevious = { viewModel.skipPrevious() },
+                onPinchOpenSession = onOpenSessionMap,
+                onSwipeFromLeftEdge = onOpenLibrary
+            )
     ) {
         // 0. Shader Background
         PresenceVisualizer(
@@ -154,7 +117,8 @@ fun PresenceScreen(
         AnimatedVisibility(
             visible = isChromeVisible,
             enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
+            exit = fadeOut() + shrinkVertically(),
+            modifier = Modifier.fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // Top controls

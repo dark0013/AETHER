@@ -2,6 +2,7 @@ package com.example.aether.ui
 
 import android.content.ComponentName
 import android.content.Context
+import android.media.AudioManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
@@ -23,6 +24,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import android.os.Bundle
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -179,6 +181,8 @@ class MusicViewModel(
     private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
     private var analysisScheduler: AnalysisScheduler? = null
+    private var audioManager: AudioManager? = null
+    private var volumeStepAccumulator = 0f
     
     private val playedHistory = mutableListOf<Long>()
     private val maxHistorySize = 8
@@ -260,6 +264,8 @@ class MusicViewModel(
 
     fun initController(context: Context) {
         analysisScheduler = AnalysisScheduler.getInstance(context)
+        audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
+        syncVolumeFromSystem()
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
         mediaControllerFuture?.addListener({
@@ -333,6 +339,7 @@ class MusicViewModel(
             mediaController?.let {
                 _repeatMode.value = it.repeatMode
                 _shuffleModeEnabled.value = it.shuffleModeEnabled
+                it.volume = 1f
             }
             startProgressUpdate()
         }, MoreExecutors.directExecutor())
@@ -437,13 +444,56 @@ class MusicViewModel(
     }
 
     fun skipPrevious() {
-        mediaController?.seekToPrevious()
+        val controller = mediaController ?: return
+        if (controller.currentPosition >= 4_000L) {
+            controller.seekTo(0)
+        } else {
+            controller.seekToPrevious()
+        }
     }
 
     fun setVolume(volume: Float) {
-        val clamped = volume.coerceIn(0f, 1f)
-        _volume.value = clamped
-        mediaController?.volume = clamped
+        applySystemVolume((volume.coerceIn(0f, 1f) * streamMax()).roundToInt())
+    }
+
+    fun adjustVolume(delta: Float) {
+        val max = streamMax()
+        volumeStepAccumulator += delta * max
+        val steps = volumeStepAccumulator.toInt()
+        if (steps == 0) return
+        volumeStepAccumulator -= steps
+        val current = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: return
+        applySystemVolume(current + steps)
+    }
+
+    private fun streamMax(): Int =
+        audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)?.coerceAtLeast(1) ?: 1
+
+    private fun applySystemVolume(level: Int) {
+        val am = audioManager ?: return
+        val max = streamMax()
+        val target = level.coerceIn(0, max)
+        val current = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        if (target == current) {
+            syncVolumeFromSystem()
+            return
+        }
+        try {
+            am.setStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                target,
+                AudioManager.FLAG_SHOW_UI
+            )
+        } catch (_: SecurityException) {
+            // Do Not Disturb or policy may block stream writes.
+        }
+        mediaController?.volume = 1f
+        syncVolumeFromSystem()
+    }
+
+    private fun syncVolumeFromSystem() {
+        val am = audioManager ?: return
+        _volume.value = am.getStreamVolume(AudioManager.STREAM_MUSIC) / streamMax().toFloat()
     }
 
     fun seekTo(position: Long, snapToOnset: Boolean = false) {

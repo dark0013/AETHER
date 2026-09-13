@@ -1,5 +1,7 @@
 package com.example.aether.analysis
 
+import androidx.compose.ui.geometry.Offset
+import com.example.aether.ui.presence.PresenceGestureMath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -56,5 +58,22 @@ class HardeningTest {
         assertEquals(179_300L, plan.endPointMs)
         assertEquals(0L, plan.startPointMs)
         assertEquals(700L, plan.fadeDurationMs)
+    }
+
+    @Test
+    fun pinchUsesCumulativeScaleNotPerEventZoom() {
+        assertFalse(PresenceGestureMath.isPinchScale(0.98f))
+        assertTrue(PresenceGestureMath.isPinchScale(0.80f))
+        assertTrue(PresenceGestureMath.isPinchScale(1.20f))
+    }
+
+    @Test
+    fun flickIsHorizontalAndPastDistance() {
+        assertTrue(PresenceGestureMath.isHorizontalFlick(Offset(-200f, 10f), 64f))
+        assertTrue(PresenceGestureMath.isHorizontalFlick(Offset(200f, -20f), 64f))
+        assertFalse(PresenceGestureMath.isHorizontalFlick(Offset(40f, 5f), 64f))
+        assertTrue(PresenceGestureMath.isVerticalDominant(Offset(10f, 80f)))
+        assertTrue(PresenceGestureMath.isFlickToNext(Offset(-200f, 10f)))
+        assertFalse(PresenceGestureMath.isFlickToNext(Offset(200f, 10f)))
     }
 }
