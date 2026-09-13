@@ -1,24 +1,48 @@
-# AETHER - Aplicación de Música (v0.2 "AETHER Look")
+# AETHER — Reproductor local inmersivo
 
-AETHER es un reproductor de música para Android con una estética moderna basada en Material Design 3.
+AETHER es un reproductor de música **local** para Android (Kotlin / Jetpack Compose / Media3 / Room).  
+Estética oscura (#121212) con acento lavanda (#C4B5FD). Home = **Presence** (gestos), no una lista clásica.
 
-## Funcionalidades Actuales (v0.2)
+## Qué hace hoy
 
-- **Diseño AETHER Look**: Interfaz oscura (#121212) con acentos lavanda (#C4B5FD).
-- **Escaneo Inteligente**: Filtra audios de WhatsApp/Telegram y archivos basura (duration > 0 y >= 30s).
-- **Gestión de Arte de Álbum**: Carga portadas de discos desde MediaStore con Coil; placeholders elegantes si no hay imagen.
-- **Búsqueda en Tiempo Real**: Filtra tu biblioteca instantáneamente por título o artista.
-- **Controles Avanzados**: Soporte para Shuffle y Repeat integrados con Media3.
-- **Mini Player con Progreso**: Barra de progreso visual integrada en la parte inferior.
-- **Now Playing Expandido**: Bottom sheet con arte a gran escala, controles grandes y navegación completa.
-- **Reproducción en Segundo Plano**: Media3 Session Service para continuidad de audio.
+- Escanea MediaStore (música ≥ 30 s; excluye WhatsApp, ringtones, etc.).
+- **Importación manual** (engrane → Importar música): carpeta o archivos vía SAF.
+- Presence: visual shader, cinta de densidad, play/pause, seek con snap a onsets.
+- Gestos: flick siguiente/anterior, volumen del **teléfono**, pellizco = mapa de sesión, borde izquierdo = biblioteca.
+- Play al arrancar sin tema: primera canción de la biblioteca.
+- **Ritual** (ancla): una sola canción, visual ámbar, no auto-next.
+- **Playlists**: nombre único (máx. 100), marcar, ordenar arrastrando, borrar varias.
+- Siguiente por similitud (si no hay playlist activa) y crossfade entre dos ExoPlayers.
+- Análisis DSP en segundo plano (perfil + cinta); si falla, la pista igual suena.
+- Reproducción en segundo plano (MediaSession / notificación).
+
+## Formatos
+
+No filtra por extensión. Reproduce lo que Media3 + códecs del dispositivo permitan (MP3, M4A/AAC, OGG/Opus, FLAC, WAV en la mayoría de Android). WMA/APE/DSD no.
 
 ## Arquitectura
 
-- **UI**: Jetpack Compose (Material 3).
-- **Imágenes**: Coil Compose.
-- **Motor de Audio**: Media3 (ExoPlayer).
-- **Patrón**: MVVM con StateFlow y Combine para reactividad.
+```text
+UI Compose (Presence / Biblioteca / Playlists / Sesión)
+        ↓
+MusicViewModel (StateFlow)
+        ↓
+MusicRepository → Room + MediaStore + SAF
+        ↓
+PlaybackService (Media3, dos ExoPlayers)
+AnalysisScheduler (WorkManager + mutex)
+```
+
+## Documentos
+
+| Archivo | Contenido |
+|---|---|
+| `AETHER_SPEC.md` | Qué debe ser AETHER (spec conceptual v0.1). |
+| `AETHER_EVOLUTION_SPEC.md` | Cómo evolucionar el código existente. |
+| `PROGRESS_REPORT.md` | Estado real a 13-sep-2026. |
+| `IMPLEMENTACION-FALTANTE-V01.md` | Huecos vs spec (BPM / beat grid / cruce). |
+| `ROADMAP.md` | Fases de implementación. |
+| `AUDIT.md` | Matriz de requisitos vs código. |
 
 ---
-*Este documento describe el estado actual del desarrollo del proyecto AETHER.*
+*Stack nativo Android. El spec original menciona Flutter; no aplica a este repo.*

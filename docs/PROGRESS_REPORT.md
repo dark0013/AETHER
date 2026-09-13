@@ -1,72 +1,83 @@
 # Informe de Avance — Proyecto AETHER
 
-**Fecha:** 12 de Septiembre de 2026  
-**Estado Actual:** Fase 13 Completada — Optimización, Errores y Hardening
+**Fecha:** 13 de septiembre de 2026  
+**Estado Actual:** Producto usable (Presence + ritual + playlists + importación). Pendiente de cierre spec: ritmo (BPM / beat grid / cruce).
 
-## 1. Trabajo Realizado
+## 1. Trabajo realizado
 
-### Fase 1 a 7 — Infraestructura y Motor Inteligente (COMPLETADO)
-- **Persistencia (Room)**: Base de datos para canciones, perfiles y cintas.
-- **DSP / Análisis**: Motor real de FFT, RMS, Onset detection y estimación de BPM.
-- **ADN Musical**: Cálculo de embeddings de 16 dimensiones y detección de secciones.
-- **Similarity Engine**: Selección inteligente de la siguiente canción por "vibe".
-- **TransitEngine**: Planificación de cruces coordinados rítmicamente.
-- **Doble Player**: Implementación de dos ExoPlayers con crossfade onset-aware.
+### Fases 1–7 — Infraestructura y motor (COMPLETADO)
+- Persistencia Room: canciones, perfiles, cintas, marcas, sesiones, **playlists**.
+- DSP: FFT, RMS, onset, BPM (estimación simple), embedding 16.
+- Similarity + TransitEngine + doble ExoPlayer con crossfade por onsets.
 
-### Fase 8 — Experiencia Presence UI (COMPLETADO)
-- **Presence Home**: Nueva interfaz inmersiva full-bleed.
-- **Density Tape**: Visualizador interactivo de energía y serie temporal de audio.
-- **Chrome Efímero**: Controles inteligentes que se ocultan automáticamente.
+### Fases 8–9 — Presence y gestos (COMPLETADO, pulido 13-sep)
+- Home full-bleed, DensityTape, chrome de título/play que se oculta.
+- **Barra superior fija:** biblioteca, engrane (ajustes), ancla, BPM.
+- Gestos unificados (`PresenceGestures.kt`): flick, volumen, pellizco, borde izquierdo, mark 420 ms.
+- Flick **derecha→izquierda = siguiente**; izquierda→derecha = anterior (o reinicio si > 4 s).
+- Play sin cola arranca la **primera canción** de la biblioteca.
 
-### Fase 9 — Gestos Avanzados de Presence (COMPLETADO)
-- **Control Total**: Navegación por flicks (Next/Prev), Double Tap (Play/Pause).
-- **Snap Seek**: Navegación magnética imantada a los onsets (golpes) de la música.
-- **Marcas (Marks)**: Creación de marcas de usuario con long press y feedback háptico.
-- **Volumen**: Gesto vertical para control de volumen dinámico.
+### Fase 10 — Shader (COMPLETADO)
+- AGSL API 33+; fallback Canvas. Uniform `uRitual` (ámbar, −20 % brillo).
 
-### Fase 11 — Ritual Mode y Sesiones (COMPLETADO)
-- **Persistencia de Sesiones**: Creadas `SessionEntity` y `SessionDao` para registrar el historial de escucha.
-- **Lógica de Ritual**: Implementado el modo de concentración que desactiva transiciones automáticas.
-- **Efecto Residuo**: El servicio de audio ahora detecta el final de la pista en modo Ritual y aplica un fundido a negro (audio y visual).
-- **Interfaz**: Añadido el icono de **Ancla** en Presence y ajuste dinámico de brillo.
+### Fases 11–12 — Ritual y sesión (COMPLETADO, pulido 13-sep)
+- Ritual visible: chip `RITUAL · Esta canción no avanza`, marco, snack, háptico, botón **Salir**.
+- Flick desactivado en ritual; al terminar: fundido y stop (el flag no se pierde).
+- Session Map por pellizco; idle 30 min cierra sesión.
 
-### Fase 12 — Session Map (Visualización de Historial) (COMPLETADO)
-- **Gesto de Pellizco (Pinch)**: Implementado en `PresenceScreen` para navegar al historial.
-- **SessionMapScreen**: Nueva interfaz que muestra el viaje musical de la sesión.
-- **Mini Cintas de Densidad**: Cada track del historial muestra su propia huella rítmica.
-- **Navegación Histórica**: Funcionalidad de salto temporal al tocar temas previos.
+### Fase 13 — Hardening (COMPLETADO)
+- Skip + snack en archivos ilegibles; análisis single-flight; perfil `ERROR`.
+- Permiso, biblioteca vacía, logs debug gated.
 
-### Fase 13 — Optimización, Errores y Hardening (COMPLETADO)
-- **Archivos ilegibles/corruptos**: `PlaybackService` salta al siguiente tema; snack silencioso “No se pudo leer el archivo”.
-- **Análisis seguro**: un solo análisis a la vez (mutex); perfil `ERROR` persistido; no reintentos infinitos en WorkManager.
-- **DSP**: buffer de ventana O(n) (sin `removeAt(0)`), cuantización percentil 2–98, cooldown de onset 120 ms.
-- **Batería**: polling de crossfade y shader solo mientras suena; progress UI a 500 ms en pausa; pantalla encendida solo en Presence + play.
-- **Memoria/UI**: sync de MediaStore sin abrir cada URI; cinta dibujada por columnas de píxel; logs debug gated.
-- **Estados de producto**: pantalla de permiso, biblioteca vacía con “Escanear”, cierre de sesión a los 30 min idle.
-- **Tests**: `HardeningTest` (RMS, cuantización, cooldown, fallback de tránsito). Compilación y unit tests OK.
+### Producto añadido (fuera del spec original, pedido del usuario)
 
----
+**Playlists**
+- Flujo: nombre → marcar canciones → OK → lista ordenable.
+- Arrastre continuo (long press) para el orden de reproducción.
+- Agregar más canciones sin perder las ya elegidas.
+- Nombres únicos (case-insensitive), máximo **100** caracteres.
+- Borrado múltiple (Seleccionar / Todas / Eliminar N).
+- Al reproducir una playlist **no** interviene la similitud.
 
-## 2. Fase Actual y Siguiente
+**Importación manual (SAF)**
+- Engrane → módulo **Importar música**: carpeta o archivos.
+- Permisos persistentes; no se borran en el rescan de MediaStore (`Song.source = import`).
+- No aplica el filtro de 30 s / WhatsApp del escaneo automático.
 
-AETHER cubre el núcleo de `AETHER_SPEC.md` (Presence, tránsito, ritual, sesiones y hardening).
+**Volumen**
+- El gesto vertical cambia el **volumen de medios del sistema** (`AudioManager`), no el gain interno de ExoPlayer.
 
-**Siguiente (opcional):** pulido fino de BPM/beat-grid en cruces, o una pasada de lint/release signing.
+**Ajustes**
+- `AetherSettings.kt`: sheet con engrane, no iconos sueltos de importar.
 
----
-
-## 3. Pendientes no bloqueantes
-
-1. Alineación de beats en `TransitEngine` (confianza BPM ≥ 0.45) sigue siendo un stub ligero.
-2. El análisis aún decodifica en el dispatcher Default; un isolate/JNI nativo no es necesario para v0.1.
+Base de datos Room **versión 6** (migraciones 4→5 playlists, 5→6 `songs.source`).
 
 ---
 
-## 4. Archivos Clave
-- **Playback:** `service/PlaybackService.kt`
-- **Análisis:** `analysis/AnalysisScheduler.kt`, `analysis/AudioAnalyzer.kt`, `analysis/AudioDecoder.kt`
-- **Visual:** `ui/presence/PresenceScreen.kt`, `ui/presence/PresenceShader.kt`
-- **Estados:** `MainActivity.kt`, `ui/MusicScreens.kt`, `ui/MusicViewModel.kt`
+## 2. Qué falta (cierre spec v0.1)
+
+Camino crítico — se oye en los cruces:
+
+1. BPM por autocorrelación + `bpm = 0` si confianza &lt; 0.35.
+2. `beatGridOffsetMs` (hoy siempre `null`).
+3. `TransitEngine.alignToBeat` (el `if` está vacío).
+
+Luego: loudness dBFS, secciones 1 Hz / p80, fade exponencial, shader sin movimiento autónomo (`uProgress`).
+
+Detalle en `IMPLEMENTACION-FALTANTE-V01.md`.
 
 ---
-*AETHER ha evolucionado a una experiencia musical inmersiva, consciente del ritmo y estable ante fallos de archivo.*
+
+## 3. Archivos clave
+
+| Área | Ruta |
+|---|---|
+| Playback | `service/PlaybackService.kt` |
+| Análisis | `analysis/AudioAnalyzer.kt`, `AnalysisScheduler.kt`, `TransitEngine.kt` |
+| Presence | `ui/presence/PresenceScreen.kt`, `PresenceGestures.kt`, `PresenceShader.kt` |
+| Playlists | `ui/playlist/PlaylistScreens.kt`, `data/db/entities/PlaylistEntity.kt` |
+| Import | `data/MusicImport.kt`, `ui/AetherSettings.kt` |
+| Estado | `ui/MusicViewModel.kt`, `data/MusicRepository.kt` |
+
+---
+*AETHER es un reproductor local inmersivo con playlists propias, importación SAF y ritual visible. El ADN rítmico del cruce aún no está a spec.*

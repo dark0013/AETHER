@@ -1,114 +1,84 @@
-# AETHER - Auditoría de Proyecto v0.1
+# AETHER - Auditoría de Proyecto
+
+**Fecha:** 13 de septiembre de 2026  
+**Código auditado:** `app/src/main/java/com/example/aether/`  
+**DB:** Room `AetherDatabase` v6
 
 ## A. Resumen ejecutivo
 
-El proyecto **AETHER** es un reproductor local inmersivo (Presence) con análisis DSP, tránsito onset-aware, ritual, sesiones y hardening de errores. Conserva la base Media3 / Compose / MediaStore.
+AETHER es un **reproductor local inmersivo** (Presence) con análisis DSP, tránsito por onsets, ritual visible, sesiones, **playlists** e **importación SAF**.
 
-*   **Sólido**: La arquitectura de reproducción basada en Media3, el manejo de permisos dinámicos y la UI básica.
-*   **Sólido (2026-09)**: persistencia Room, análisis DSP, Presence, tránsito onset-aware, ritual, sesiones y hardening de errores.
-*   **Residual**: alineación fina de beat-grid en cruces; BPM sigue siendo una estimación simple.
+* **Sólido:** Media3, permisos, Room, Presence, gestos, ritual, playlists, import, hardening de archivos ilegibles.
+* **Residual (spec):** BPM por autocorrelación, beat grid, `alignToBeat`, loudness, secciones 1 Hz.
 
----
-
-## B. Arquitectura actual
-
-La arquitectura real encontrada es un patrón **MVVM simplificado**:
+## B. Arquitectura
 
 ```text
-UI (Jetpack Compose)
-   ↓ 
+UI (Compose: Presence, Library, Playlist, Session, Settings)
+   ↓
 ViewModel (MusicViewModel / StateFlow)
-   ↓ 
-Repository (MusicRepository / MediaStore)
-   ↓ 
-Audio Engine (Media3 / ExoPlayer / MediaSessionService)
+   ↓
+Repository (MediaStore + SAF + Room)
+   ↓
+PlaybackService (2× ExoPlayer + MediaSession)
+AnalysisScheduler (WorkManager, un análisis a la vez)
 ```
-
-Persistencia Room (`AetherDatabase`) y DSP (`AudioAnalyzer` / `AnalysisScheduler`) integrados sobre el MVVM existente.
-
----
 
 ## C. Matriz de requisitos
 
-| ID | Requisito | Estado | Evidencia | Observaciones |
-| :--- | :--- | :--- | :--- | :--- |
-| **CORE-001** | Escaneo MediaStore | **IMPLEMENTADO** | `MusicRepository` | Incluye filtros por duración y carpetas. |
-| **CORE-002** | Reproducción Background | **IMPLEMENTADO** | `PlaybackService` | Usa MediaSessionService de Media3. |
-| **DATA-001** | TrackRecord | **IMPLEMENTADO** | `SongEntity` | Persistente en Room con invalidation key. |
-| **DATA-002** | TrackProfile | **IMPLEMENTADO** | `ProfileEntity` | BPM, energy, centroid, embedding 16. |
-| **DATA-003** | DensityTape | **IMPLEMENTADO** | `DensityTapeEntity` | Energy/centroid/flux/onsets uint8. |
-| **ANA-001** | Pipeline de Análisis | **IMPLEMENTADO** | `AudioAnalyzer` | FFT, RMS, onset, BPM; un análisis a la vez. |
-| **ENG-001** | TransitEngine | **IMPLEMENTADO** | `TransitEngine.kt` | Plan de cruce por onsets. |
-| **ENG-002** | Crossfade Onset-aware | **IMPLEMENTADO** | `PlaybackService` | Doble ExoPlayer + fade. |
-| **UX-001** | Presence Mode | **IMPLEMENTADO** | `PresenceScreen` | Home full-bleed. |
-| **UX-002** | DensityTape Widget | **IMPLEMENTADO** | `DensityTapeWidget` | Seek + placeholder si no hay perfil. |
-| **UX-003** | Presence Shader | **IMPLEMENTADO** | `PresenceShader` | AGSL API 33+; fallback Canvas. |
-| **UX-004** | Gestos Presence | **IMPLEMENTADO** | `PresenceScreen` | Tap, flick, volumen, pinch, mark. |
-| **UX-005** | Ritual Mode | **IMPLEMENTADO** | `PlaybackService` / Presence | Sin auto-next + residuo. |
-| **SYS-001** | Sesiones | **IMPLEMENTADO** | `SessionEntity` / `SessionMapScreen` | Historial + pinch. |
-| **SYS-002** | Archivo ilegible | **IMPLEMENTADO** | `PlaybackService` + snack | Skip al siguiente + aviso silencioso. |
-| **SYS-003** | Permiso denegado | **IMPLEMENTADO** | `PermissionScreen` | Pantalla única de acceso a audio. |
-| **SYS-004** | Biblioteca vacía | **IMPLEMENTADO** | `EmptyState` | Texto corto + botón escanear. |
-| **SYS-005** | Análisis fallido | **IMPLEMENTADO** | `AnalysisStatus.ERROR` | Pista reproducible; cinta placeholder. |
-| **PERF-001** | Shader API < 33 | **IMPLEMENTADO** | `PresenceShader` fallback Canvas | AGSL solo en API 33+. |
-| **PERF-002** | Visualización en pausa | **IMPLEMENTADO** | `PresenceVisualizer(isPlaying)` | No anima ni hace polling de cruce en pausa. |
+| ID | Requisito | Estado | Evidencia |
+| :--- | :--- | :--- | :--- |
+| **CORE-001** | Escaneo MediaStore | **IMPLEMENTADO** | `MusicRepository.syncWithMediaStore` |
+| **CORE-003** | Importación manual SAF | **IMPLEMENTADO** | `MusicImport` + engrane Ajustes |
+| **CORE-002** | Reproducción background | **IMPLEMENTADO** | `PlaybackService` |
+| **DATA-001** | TrackRecord | **IMPLEMENTADO** | `SongEntity` + `source` mediastore/import |
+| **DATA-002** | TrackProfile | **PARCIAL** | Falta loudness, beatGrid, BPM spec |
+| **DATA-003** | DensityTape | **IMPLEMENTADO** | uint8 percentil 2–98 |
+| **DATA-004** | Playlists | **IMPLEMENTADO** | `PlaylistEntity` / `PlaylistScreens` |
+| **ANA-001** | Pipeline análisis | **PARCIAL** | RMS/FFT/onset OK; BPM/secciones no a spec |
+| **ENG-001** | TransitEngine | **PARCIAL** | Onsets sí; `alignToBeat` stub |
+| **ENG-002** | Crossfade doble player | **IMPLEMENTADO** | Fade lineal 10 pasos |
+| **UX-001** | Presence | **IMPLEMENTADO** | `PresenceScreen` |
+| **UX-002** | DensityTape widget | **IMPLEMENTADO** | Seek + placeholder |
+| **UX-003** | Shader | **PARCIAL** | AGSL + ritual; falta `uProgress` |
+| **UX-004** | Gestos | **IMPLEMENTADO** | `PresenceGestures` (flick, vol sistema, pinch) |
+| **UX-005** | Ritual | **IMPLEMENTADO** | Chip, ámbar, Salir, no skip |
+| **UX-006** | Ajustes / import | **IMPLEMENTADO** | `AetherSettings.kt` |
+| **SYS-001** | Sesiones | **PARCIAL** | Hay trackIds; no `startReasons` |
+| **SYS-002** | Archivo ilegible | **IMPLEMENTADO** | Skip + snack |
+| **SYS-003** | Permiso | **IMPLEMENTADO** | `PermissionScreen` |
+| **SYS-004** | Biblioteca vacía | **IMPLEMENTADO** | Escanear + importar |
+| **PERF-001** | Shader API &lt; 33 | **IMPLEMENTADO** | Fallback Canvas |
 
----
+## D. Funcionalidades existentes (código)
 
-## D. Funcionalidades existentes
+* Presence inmersiva; barra superior **fija** (biblioteca, engrane, ancla, BPM).
+* Chrome de título/play efímero (2.2 s).
+* Volumen de **sistema** (STREAM_MUSIC).
+* Play inicial = primera pista.
+* Playlists con nombre único ≤ 100, pick, drag reorder, bulk delete.
+* Import carpeta/archivos persistente.
+* Similarity solo si **no** hay playlist activa ni ritual.
+* Análisis background; pista reproducible con `ERROR`.
 
-*   **Escaneo inteligente**: Filtra audios de WhatsApp/Telegram y archivos cortos (>30s).
-*   **Gestión de Carátulas**: Carga mediante Coil con fallback a logo de la app.
-*   **Búsqueda**: Filtrado reactivo de la biblioteca por título y artista.
-*   **Reproducción Completa**: Play/Pause, Next/Prev, Shuffle, Repeat y Seek.
-*   **UI v0.2**: Tema oscuro "AETHER Look" con acentos lavanda.
-*   **Media3 integration**: Notificaciones y controles de medios en el sistema.
+## E. Funcionalidades faltantes vs spec v0.1
 
----
+* BPM autocorrelación + umbral 0.35 + `bpm = 0`.
+* `beatGridOffsetMs` y `alignToBeat`.
+* `loudnessApprox` dBFS; secciones 1 Hz / p80 / gap 12 s.
+* Fade exponencial + fallback cut 80 ms.
+* Shader: `uProgress`, decay 180 ms, cero seno autónomo.
+* `startReasons` de sesión; badge ready/pending en lista.
+* Agrupar librería por álbum/carpeta (opcional spec).
 
-## E. Funcionalidades faltantes
+## F. Riesgos
 
-*   **Motor de DSP**: Procesamiento de audio para extraer features (Isolate/Worker).
-*   **Base de Datos (Room)**: Necesaria para persistir los `TrackProfile` y `DensityTape`.
-*   **Visualizador de Densidad**: El componente visual interactivo para la Home.
-*   **Lógica de Similitud**: Selección de canción basada en vectores de embedding.
-*   **TransitEngine**: Control coordinado de dos instancias de ExoPlayer para crossfade perfecto.
+* DSP costoso en bibliotecas grandes (un worker; OK).
+* Import SAF: URIs persistentes; si el usuario revoca el permiso, esas pistas dejan de leerse.
+* Migración Room destructiva solo como fallback; 4→5 y 5→6 son aditivas.
 
----
+## G. Recomendación
 
-## F. Refactorizaciones necesarias
+El producto **ya se usa**. El siguiente trabajo de spec es el **bloque rítmico** (BPM → grid → cruce), no más superficie de UI.
 
-*   **Doble Player**: El `MusicViewModel` y `PlaybackService` deben evolucionar para manejar dos instancias de ExoPlayer simultáneamente para permitir el crossfade basado en onsets.
-*   **Persistencia**: Migrar de una lista en memoria a una fuente de datos basada en Room que sincronice con MediaStore.
-
----
-
-## G. Riesgos
-
-*   **Rendimiento DSP**: El análisis de audio (FFT/BPM) en Android puede ser costoso. Se requerirá un manejo cuidadoso de `Coroutines` o `WorkManager` para no afectar el audio ni la UI.
-*   **Memoria**: Almacenar `DensityTape` (series temporales) para miles de canciones requiere una estrategia de almacenamiento eficiente.
-*   **Compatibilidad de Shaders**: AGSL (Android Graphics Shading Language) requiere API 33+. Se necesita fallback para versiones anteriores.
-
----
-
-## H. Dependencias
-
-```text
-TrackProfile (Análisis)
-    ↓
-Similarity (Cálculo de embeddings)
-    ↓
-TransitEngine (Selección inteligente)
-    ↓
-Crossfade (Reproducción coordinada)
-```
-
----
-
-## I. Recomendación
-
-La **Fase 1** después de esta auditoría debe centrarse en la **Persistencia y el Análisis Básico**. 
-Sin un `TrackProfile` persistente, no se pueden implementar las funcionalidades core de AETHER (Similitud, Tránsito, Presencia).
-
-1.  Implementar **Room** para persistir `Song`, `TrackProfile` y `DensityTape`.
-2.  Crear el `AnalysisScheduler` y un primer `TrackAnalyzer` que extraiga al menos **RMS (Energía)** para poder pintar una `DensityTape` básica.
+Ver `IMPLEMENTACION-FALTANTE-V01.md` y `PROGRESS_REPORT.md`.

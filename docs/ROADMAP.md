@@ -162,6 +162,19 @@ Siguiendo las reglas de `AETHER_EVOLUTION_SPEC.md`, cada fase se integrará sobr
 
 ---
 
+## FASE 14 — Playlists, importación y pulido de producto
+**Objetivo:** Listas propias, importar lo que MediaStore no ve, Presence usable sin buscar botones.
+
+*   **Estado:** COMPLETADO (13-sep-2026). Fuera del spec original; pedido explícito del usuario.
+*   **Playlists:** nombre → marcar → OK → arrastre de orden; nombres únicos máx. 100; borrado múltiple; cola sin similitud.
+*   **Import SAF:** engrane → Importar música (carpeta / archivos); `Song.source`; no se borran en rescan.
+*   **Presence:** barra superior fija; play = primera canción; volumen de sistema; ritual visible (chip + shader ámbar).
+*   **Gestos:** `PresenceGestures.kt` unificado (evita que transform se coma drag/pinch).
+*   **Archivos:** `ui/playlist/PlaylistScreens.kt`, `data/MusicImport.kt`, `ui/AetherSettings.kt`, `ui/presence/PresenceGestures.kt`.
+*   **DB:** v6 (`playlists`, `playlist_tracks`, `songs.source`).
+
+---
+
 ## FASE 13 — Optimización, Errores y Hardening
 **Objetivo:** Estabilidad de producto: fallos de archivo, batería, memoria y estados de error.
 
@@ -194,6 +207,7 @@ graph TD
     PR --> G[FASE 9: Gestos & Snap]
     AA --> S[FASE 10: Shader Reactivo]
     CF --> R[FASE 11: Ritual & Sessions]
+    R --> PL[FASE 14: Playlists & Import SAF]
 ```
 
 ---
