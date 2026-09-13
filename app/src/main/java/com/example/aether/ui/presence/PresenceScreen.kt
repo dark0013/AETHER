@@ -1,7 +1,10 @@
 package com.example.aether.ui.presence
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,10 +45,17 @@ fun PresenceScreen(
     
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
+    val ritualAmber = Color(0xFFE8A87C)
 
-    DisposableEffect(isPlaying) {
-        view.keepScreenOn = isPlaying
+    DisposableEffect(isPlaying, isRitualMode) {
+        view.keepScreenOn = isPlaying || isRitualMode
         onDispose { view.keepScreenOn = false }
+    }
+
+    LaunchedEffect(isRitualMode) {
+        if (isRitualMode) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
     }
 
     Box(
@@ -71,31 +81,45 @@ fun PresenceScreen(
         PresenceVisualizer(
             features = audioFeatures,
             isPlaying = isPlaying,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(alpha = if (isRitualMode) 0.7f else 1f)
+            isRitual = isRitualMode,
+            modifier = Modifier.fillMaxSize()
         )
 
-        // 1. Background Artwork (blended)
         if (currentSong != null) {
             AsyncImage(
                 model = currentSong!!.albumArtUri,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                alpha = if (isRitualMode) 0.2f else 0.3f // Reduced alpha to blend with shader
+                alpha = if (isRitualMode) 0.12f else 0.3f
             )
         }
-        
+
+        val overlayAlpha by animateFloatAsState(
+            targetValue = if (isRitualMode) 0.55f else 0.0f,
+            animationSpec = tween(500),
+            label = "ritual_overlay"
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = overlayAlpha * 0.25f),
+                            Color.Black.copy(alpha = 0.55f + overlayAlpha * 0.35f)
+                        )
                     )
                 )
         )
+        if (isRitualMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(10.dp)
+                    .border(1.5.dp, ritualAmber.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
+            )
+        }
 
         // 2. Density Tape (Always visible but sutil)
         Column(
@@ -113,6 +137,54 @@ fun PresenceScreen(
             )
         }
 
+        AnimatedVisibility(
+            visible = isRitualMode,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 12.dp)
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.72f),
+                shape = RoundedCornerShape(28.dp),
+                tonalElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Rounded.Anchor,
+                        contentDescription = null,
+                        tint = ritualAmber,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "RITUAL",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 3.sp
+                            ),
+                            color = ritualAmber
+                        )
+                        Text(
+                            text = "Esta canción no avanza",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.7f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = { viewModel.toggleRitualMode() }) {
+                        Text("Salir", color = ritualAmber, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
         // 3. Chrome Efímero
         AnimatedVisibility(
             visible = isChromeVisible,
@@ -125,8 +197,9 @@ fun PresenceScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp)
-                        .statusBarsPadding(),
+                        .statusBarsPadding()
+                        .padding(horizontal = 24.dp)
+                        .padding(top = if (isRitualMode) 72.dp else 24.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -138,7 +211,7 @@ fun PresenceScreen(
                         Icon(
                             Icons.Rounded.Anchor,
                             contentDescription = "Ritual",
-                            tint = if (isRitualMode) MaterialTheme.colorScheme.primary else Color.White
+                            tint = if (isRitualMode) ritualAmber else Color.White
                         )
                     }
                     
@@ -174,9 +247,13 @@ fun PresenceScreen(
                         maxLines = 2
                     )
                     Text(
-                        text = currentSong?.artist ?: "Selecciona una canción",
+                        text = when {
+                            isRitualMode -> "Anclada · una sola canción"
+                            currentSong != null -> currentSong!!.artist
+                            else -> "Pulsa play para empezar"
+                        },
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color.White.copy(alpha = 0.7f)
+                        color = if (isRitualMode) ritualAmber.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.7f)
                     )
                     
                     Spacer(modifier = Modifier.height(24.dp))

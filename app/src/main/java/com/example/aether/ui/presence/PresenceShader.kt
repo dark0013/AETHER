@@ -25,12 +25,13 @@ import com.example.aether.ui.RealtimeAudioFeatures
 fun PresenceVisualizer(
     features: RealtimeAudioFeatures,
     isPlaying: Boolean,
+    isRitual: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        AgslPresenceVisualizer(features, isPlaying, modifier)
+        AgslPresenceVisualizer(features, isPlaying, isRitual, modifier)
     } else {
-        FallbackPresenceVisualizer(features, isPlaying, modifier)
+        FallbackPresenceVisualizer(features, isPlaying, isRitual, modifier)
     }
 }
 
@@ -41,15 +42,20 @@ private const val PRESENCE_SHADER_CODE = """
     uniform float uCentroid;
     uniform float uFlux;
     uniform float uOnset;
+    uniform float uRitual;
 
     half4 main(float2 fragCoord) {
         float2 uv = fragCoord / uSize;
         float dist = distance(uv, float2(0.5, 0.5));
 
-        float3 baseColor = float3(0.5, 0.4, 0.9) * (0.8 + uEnergy * 0.4);
+        float3 presenceTint = float3(0.5, 0.4, 0.9);
+        float3 ritualTint = float3(0.78, 0.38, 0.22);
+        float3 tint = mix(presenceTint, ritualTint, uRitual);
+        float dim = 1.0 - uRitual * 0.22;
+        float3 baseColor = tint * (0.8 + uEnergy * 0.4) * dim;
 
-        float wave = sin(dist * 15.0 - uTime * (1.5 + uFlux * 4.0)) * 0.1;
-        float pulse = uOnset * 0.15;
+        float wave = sin(dist * 15.0 - uTime * (1.5 + uFlux * 4.0 * (1.0 - uRitual * 0.6))) * 0.1;
+        float pulse = uOnset * 0.15 * (1.0 - uRitual * 0.4);
 
         float mask = smoothstep(0.45 + pulse + wave, 0.2 + wave, dist);
         float3 finalColor = baseColor * mask;
@@ -63,6 +69,7 @@ private const val PRESENCE_SHADER_CODE = """
 private fun AgslPresenceVisualizer(
     features: RealtimeAudioFeatures,
     isPlaying: Boolean,
+    isRitual: Boolean,
     modifier: Modifier = Modifier
 ) {
     val shader = remember { RuntimeShader(PRESENCE_SHADER_CODE) }
@@ -94,6 +101,7 @@ private fun AgslPresenceVisualizer(
         shader.setFloatUniform("uCentroid", features.centroid)
         shader.setFloatUniform("uFlux", if (isPlaying) features.flux else 0f)
         shader.setFloatUniform("uOnset", if (isPlaying) smoothedOnset else 0f)
+        shader.setFloatUniform("uRitual", if (isRitual) 1f else 0f)
         drawRect(brush = ShaderBrush(shader))
     }
 }
@@ -102,6 +110,7 @@ private fun AgslPresenceVisualizer(
 private fun FallbackPresenceVisualizer(
     features: RealtimeAudioFeatures,
     isPlaying: Boolean,
+    isRitual: Boolean,
     modifier: Modifier = Modifier
 ) {
     val targetEnergy = if (isPlaying) features.energy else features.energy * 0.35f
@@ -115,14 +124,15 @@ private fun FallbackPresenceVisualizer(
         val center = Offset(size.width / 2, size.height / 2)
         val radius = (size.minDimension / 2) * (0.6f + animatedEnergy * 0.5f)
 
+        val core = if (isRitual) Color(0xFFC45C38) else Color(0xFFC4B5FD)
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFFC4B5FD).copy(alpha = 0.5f + animatedEnergy * 0.3f),
+                    core.copy(alpha = (if (isRitual) 0.38f else 0.5f) + animatedEnergy * 0.3f),
                     Color.Transparent
                 ),
                 center = center,
-                radius = radius.coerceAtLeast(1f)
+                radius = radius.coerceAtLeast(1f) * if (isRitual) 0.85f else 1f
             )
         )
     }

@@ -183,6 +183,7 @@ class MusicViewModel(
     private var analysisScheduler: AnalysisScheduler? = null
     private var audioManager: AudioManager? = null
     private var volumeStepAccumulator = 0f
+    private var playFirstWhenControllerReady = false
     
     private val playedHistory = mutableListOf<Long>()
     private val maxHistorySize = 8
@@ -342,6 +343,10 @@ class MusicViewModel(
                 it.volume = 1f
             }
             startProgressUpdate()
+            if (playFirstWhenControllerReady) {
+                playFirstWhenControllerReady = false
+                togglePlayPause()
+            }
         }, MoreExecutors.directExecutor())
     }
 
@@ -398,11 +403,36 @@ class MusicViewModel(
     }
 
     fun togglePlayPause() {
-        val controller = mediaController ?: return
+        val controller = mediaController
+        if (controller == null) {
+            playFirstWhenControllerReady = true
+            playFirstSong()
+            return
+        }
         if (controller.isPlaying) {
             controller.pause()
-        } else {
+            return
+        }
+        if (controller.mediaItemCount > 0) {
             controller.play()
+            return
+        }
+        playFirstSong()
+    }
+
+    private fun playFirstSong() {
+        val first = songs.value.firstOrNull()
+        if (first != null) {
+            playSong(first)
+            return
+        }
+        viewModelScope.launch {
+            val song = repository.getLocalSongs().firstOrNull()
+            if (song != null) {
+                playSong(song)
+            } else {
+                _userNotice.value = UserNotice("Tu biblioteca está vacía")
+            }
         }
     }
 
@@ -424,19 +454,17 @@ class MusicViewModel(
     fun toggleRitualMode() {
         val nextMode = !_isRitualMode.value
         _isRitualMode.value = nextMode
-        
-        // Notify service
+        if (nextMode) {
+            _isChromeVisible.value = true
+            startChromeTimer()
+            _userNotice.value = UserNotice("Ritual: esta canción no avanza")
+        }
+
         val controller = mediaController ?: return
         val args = Bundle().apply {
             putBoolean("is_ritual", nextMode)
         }
         controller.sendCustomCommand(SessionCommand("SET_RITUAL_MODE", Bundle.EMPTY), args)
-        
-        // Reset session on mode change if needed
-        viewModelScope.launch {
-            currentSessionId?.let { repository.endSession(it) }
-            currentSessionId = repository.startSession(if (nextMode) "ritual" else "presence")
-        }
     }
 
     fun skipNext() {

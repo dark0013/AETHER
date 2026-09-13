@@ -119,7 +119,6 @@ class PlaybackService : MediaSessionService() {
 
     private fun startResidueAndStop() {
         val player = activePlayer ?: return
-        isRitualMode = false
         fadeVolume(player, player.volume, 0f, 1600L) {
             player.pause()
             player.seekTo(0)
