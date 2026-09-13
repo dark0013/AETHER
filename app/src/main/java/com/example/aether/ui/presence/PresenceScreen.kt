@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.aether.ui.AetherSettingsButton
 import com.example.aether.ui.MusicViewModel
 import com.example.aether.ui.formatDuration
 
@@ -199,12 +200,11 @@ fun PresenceScreen(
             IconButton(onClick = onOpenLibrary) {
                 Icon(Icons.Rounded.LibraryMusic, contentDescription = "Biblioteca", tint = Color.White)
             }
-            IconButton(onClick = onImportFolder) {
-                Icon(Icons.Rounded.CreateNewFolder, contentDescription = "Importar carpeta", tint = Color.White)
-            }
-            IconButton(onClick = onImportFiles) {
-                Icon(Icons.Rounded.AudioFile, contentDescription = "Elegir archivos", tint = Color.White)
-            }
+            AetherSettingsButton(
+                onImportFolder = onImportFolder,
+                onImportFiles = onImportFiles,
+                tint = Color.White
+            )
             Spacer(modifier = Modifier.weight(1f))
             if (profile?.bpm != null && profile!!.bpm!! > 0) {
                 Surface(

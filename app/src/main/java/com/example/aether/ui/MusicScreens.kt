@@ -344,12 +344,11 @@ fun AETHERTopBar(
                 ),
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = onImportFolder) {
-                Icon(Icons.Rounded.CreateNewFolder, contentDescription = "Importar carpeta")
-            }
-            IconButton(onClick = onImportFiles) {
-                Icon(Icons.Rounded.AudioFile, contentDescription = "Elegir archivos")
-            }
+            AetherSettingsButton(
+                onImportFolder = onImportFolder,
+                onImportFiles = onImportFiles,
+                tint = Color.White
+            )
         }
         
         TextField(
