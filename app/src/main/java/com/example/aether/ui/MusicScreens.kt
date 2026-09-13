@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,6 +29,8 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.example.aether.R
 import com.example.aether.model.Song
+import com.example.aether.ui.presence.PresenceScreen
+import com.example.aether.ui.session.SessionMapScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,41 +40,49 @@ fun MusicApp(viewModel: MusicViewModel) {
     val isPlaying by viewModel.isPlaying.collectAsState()
     val progress by viewModel.playbackProgress.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val currentProfile by viewModel.currentProfile.collectAsState()
+    val notice by viewModel.userNotice.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
+    var activeScreen by remember { mutableStateOf("presence") } // "presence", "library", "map"
     var showNowPlaying by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            AETHERTopBar(
-                searchQuery = searchQuery,
-                onSearchChange = { viewModel.onSearchQueryChange(it) }
-            )
-        },
-        bottomBar = {
-            if (currentSong != null) {
-                MiniPlayer(
-                    song = currentSong!!,
+    LaunchedEffect(activeScreen) {
+        viewModel.setHighRefreshRate(activeScreen == "presence")
+    }
+
+    LaunchedEffect(notice) {
+        val message = notice?.message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.consumeNotice()
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+    Crossfade(targetState = activeScreen, label = "screen_switch") { screen ->
+        when (screen) {
+            "library" -> {
+                LibraryScreen(
+                    viewModel = viewModel,
+                    songs = songs,
+                    currentSong = currentSong,
                     isPlaying = isPlaying,
                     progress = progress,
-                    onTogglePlayPause = { viewModel.togglePlayPause() },
-                    onClick = { showNowPlaying = true }
+                    searchQuery = searchQuery,
+                    onBack = { activeScreen = "presence" },
+                    onShowNowPlaying = { showNowPlaying = true }
                 )
             }
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            if (songs.isEmpty()) {
-                EmptyState(isSearch = searchQuery.isNotEmpty())
-            } else {
-                SongList(
-                    songs = songs,
-                    currentSongId = currentSong?.id,
-                    onSongClick = { viewModel.playSong(it) }
+            "map" -> {
+                SessionMapScreen(
+                    viewModel = viewModel,
+                    onBack = { activeScreen = "presence" }
+                )
+            }
+            else -> {
+                PresenceScreen(
+                    viewModel = viewModel,
+                    onOpenLibrary = { activeScreen = "library" },
+                    onOpenSessionMap = { activeScreen = "map" }
                 )
             }
         }
@@ -92,6 +103,7 @@ fun MusicApp(viewModel: MusicViewModel) {
                 progress = progress,
                 repeatMode = repeatMode,
                 shuffleModeEnabled = shuffleMode,
+                bpm = currentProfile?.bpm,
                 onTogglePlayPause = { viewModel.togglePlayPause() },
                 onPrevious = { viewModel.skipPrevious() },
                 onNext = { viewModel.skipNext() },
@@ -101,11 +113,116 @@ fun MusicApp(viewModel: MusicViewModel) {
             )
         }
     }
+
+    SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .padding(bottom = 24.dp)
+    )
+    }
+}
+
+@Composable
+fun PermissionScreen(onRequestAccess: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Icon(
+                Icons.Rounded.LibraryMusic,
+                contentDescription = null,
+                modifier = Modifier.size(72.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Permitir acceso a audio",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "AETHER necesita leer tu música local para reproducirla.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(onClick = onRequestAccess) {
+                Text("Permitir")
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AETHERTopBar(searchQuery: String, onSearchChange: (String) -> Unit) {
+fun LibraryScreen(
+    viewModel: MusicViewModel,
+    songs: List<Song>,
+    currentSong: Song?,
+    isPlaying: Boolean,
+    progress: Long,
+    searchQuery: String,
+    onBack: () -> Unit,
+    onShowNowPlaying: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            AETHERTopBar(
+                searchQuery = searchQuery,
+                onSearchChange = { viewModel.onSearchQueryChange(it) },
+                onBack = onBack
+            )
+        },
+        bottomBar = {
+            if (currentSong != null) {
+                MiniPlayer(
+                    song = currentSong,
+                    isPlaying = isPlaying,
+                    progress = progress,
+                    onTogglePlayPause = { viewModel.togglePlayPause() },
+                    onClick = onShowNowPlaying
+                )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            if (songs.isEmpty()) {
+                EmptyState(
+                    isSearch = searchQuery.isNotEmpty(),
+                    onScan = { viewModel.loadSongs() }
+                )
+            } else {
+                SongList(
+                    songs = songs,
+                    currentSongId = currentSong?.id,
+                    onSongClick = { viewModel.playSong(it) }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AETHERTopBar(
+    searchQuery: String, 
+    onSearchChange: (String) -> Unit,
+    onBack: () -> Unit
+) {
     Column(
         modifier = Modifier
             .background(MaterialTheme.colorScheme.background)
@@ -114,9 +231,13 @@ fun AETHERTopBar(searchQuery: String, onSearchChange: (String) -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "AETHER",
                 style = MaterialTheme.typography.headlineMedium.copy(
@@ -318,6 +439,7 @@ fun NowPlayingScreen(
     progress: Long,
     repeatMode: Int,
     shuffleModeEnabled: Boolean,
+    bpm: Double?,
     onTogglePlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -363,18 +485,38 @@ fun NowPlayingScreen(
         
         Spacer(modifier = Modifier.height(32.dp))
         
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = song.title,
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = song.artist,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = song.title,
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = song.artist,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            if (bpm != null && bpm > 0) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "${bpm.toInt()} BPM",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
         
         Spacer(modifier = Modifier.height(32.dp))
@@ -459,7 +601,7 @@ fun NowPlayingScreen(
 }
 
 @Composable
-fun EmptyState(isSearch: Boolean) {
+fun EmptyState(isSearch: Boolean, onScan: (() -> Unit)? = null) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
@@ -474,6 +616,12 @@ fun EmptyState(isSearch: Boolean) {
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (!isSearch && onScan != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = onScan) {
+                    Text("Escanear")
+                }
+            }
         }
     }
 }

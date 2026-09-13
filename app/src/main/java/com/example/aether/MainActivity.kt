@@ -18,6 +18,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.aether.data.MusicRepository
 import com.example.aether.ui.MusicApp
 import com.example.aether.ui.MusicViewModel
+import com.example.aether.ui.PermissionScreen
 import com.example.aether.ui.theme.AETHERTheme
 
 class MainActivity : ComponentActivity() {
@@ -62,21 +63,24 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Manifest.permission.READ_MEDIA_AUDIO
+                } else {
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                }
+
                 LaunchedEffect(hasPermission) {
                     if (hasPermission) {
                         viewModel.loadSongs()
                         viewModel.initController(context.applicationContext)
-                    } else {
-                        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            Manifest.permission.READ_MEDIA_AUDIO
-                        } else {
-                            Manifest.permission.READ_EXTERNAL_STORAGE
-                        }
-                        launcher.launch(permission)
                     }
                 }
 
-                MusicApp(viewModel = viewModel)
+                if (hasPermission) {
+                    MusicApp(viewModel = viewModel)
+                } else {
+                    PermissionScreen(onRequestAccess = { launcher.launch(permission) })
+                }
             }
         }
     }

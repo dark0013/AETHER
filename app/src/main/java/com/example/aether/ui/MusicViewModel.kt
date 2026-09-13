@@ -5,34 +5,69 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
+import com.example.aether.analysis.AnalysisScheduler
+import com.example.aether.analysis.SimilarityEngine
+import com.example.aether.analysis.TransitEngine
 import com.example.aether.data.MusicRepository
+import com.example.aether.data.db.entities.DensityTapeEntity
+import com.example.aether.data.db.entities.MarkEntity
+import com.example.aether.data.db.entities.ProfileEntity
 import com.example.aether.model.Song
 import com.example.aether.service.PlaybackService
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import android.os.Bundle
+import kotlin.math.abs
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+data class RealtimeAudioFeatures(
+    val energy: Float = 0f,
+    val centroid: Float = 0f,
+    val flux: Float = 0f,
+    val isOnset: Boolean = false
+)
+
+data class SessionItem(
+    val song: Song,
+    val tape: DensityTapeEntity?
+)
+
+data class UserNotice(
+    val message: String,
+    val id: Long = System.currentTimeMillis()
+)
 
 class MusicViewModel(
     private val repository: MusicRepository
 ) : ViewModel() {
 
-    private val _songs = MutableStateFlow<List<Song>>(emptyList())
-    val songs: StateFlow<List<Song>> = _songs.asStateFlow()
+    val songs: StateFlow<List<Song>> = repository.getSongsFlow()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    val filteredSongs: StateFlow<List<Song>> = combine(_songs, _searchQuery) { songs, query ->
+    val filteredSongs: StateFlow<List<Song>> = combine(songs, _searchQuery) { songs, query ->
         if (query.isBlank()) songs
         else songs.filter { 
             it.title.contains(query, ignoreCase = true) || 
@@ -43,11 +78,76 @@ class MusicViewModel(
     private val _currentSong = MutableStateFlow<Song?>(null)
     val currentSong: StateFlow<Song?> = _currentSong.asStateFlow()
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentProfile: StateFlow<ProfileEntity?> = _currentSong
+        .flatMapLatest { song ->
+            if (song != null) repository.getProfileFlow(song.id)
+            else flowOf(null)
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentTape: StateFlow<DensityTapeEntity?> = _currentSong
+        .flatMapLatest { song ->
+            if (song != null) repository.getTapeFlow(song.id)
+            else flowOf(null)
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentMarks: StateFlow<List<MarkEntity>> = _currentSong
+        .flatMapLatest { song ->
+            if (song != null) repository.getMarksFlow(song.id)
+            else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val sessionItems: StateFlow<List<SessionItem>> = repository.getActiveSessionFlow()
+        .flatMapLatest { session ->
+            if (session == null || session.trackIds.isBlank()) {
+                flowOf(emptyList())
+            } else {
+                val ids = session.trackIds.split(",").mapNotNull { it.toLongOrNull() }
+                flow {
+                    val tapesById = repository.getTapesForSongs(ids).associateBy { it.songId }
+                    emitAll(
+                        songs.map { allSongs ->
+                            val songsById = allSongs.associateBy { it.id }
+                            ids.mapNotNull { id -> songsById[id] }.map { song ->
+                                SessionItem(song, tapesById[song.id])
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     private val _playbackProgress = MutableStateFlow(0L)
     val playbackProgress: StateFlow<Long> = _playbackProgress.asStateFlow()
+
+    val realtimeAudioFeatures: StateFlow<RealtimeAudioFeatures> = combine(
+        currentTape,
+        playbackProgress
+    ) { tape, progress ->
+        if (tape == null || tape.energyTape.isEmpty()) {
+            RealtimeAudioFeatures()
+        } else {
+            val hopMs = tape.hopMs.toDouble()
+            val frameIndex = (progress / hopMs).toInt().coerceIn(0, tape.frameCount - 1)
+            
+            RealtimeAudioFeatures(
+                energy = (tape.energyTape[frameIndex].toInt() and 0xFF) / 255f,
+                centroid = (tape.centroidTape[frameIndex].toInt() and 0xFF) / 255f,
+                flux = (tape.fluxTape[frameIndex].toInt() and 0xFF) / 255f,
+                isOnset = tape.onsetFlags[frameIndex].toInt() == 1
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RealtimeAudioFeatures())
 
     private val _repeatMode = MutableStateFlow(Player.REPEAT_MODE_OFF)
     val repeatMode: StateFlow<Int> = _repeatMode.asStateFlow()
@@ -55,12 +155,37 @@ class MusicViewModel(
     private val _shuffleModeEnabled = MutableStateFlow(false)
     val shuffleModeEnabled: StateFlow<Boolean> = _shuffleModeEnabled.asStateFlow()
 
+    private val _currentTransitionPlan = MutableStateFlow<TransitEngine.TransitionPlan?>(null)
+    val currentTransitionPlan: StateFlow<TransitEngine.TransitionPlan?> = _currentTransitionPlan.asStateFlow()
+
+    private val _isChromeVisible = MutableStateFlow(true)
+    val isChromeVisible: StateFlow<Boolean> = _isChromeVisible.asStateFlow()
+
+    private val _isHighRefreshRate = MutableStateFlow(true)
+
+    private val _isRitualMode = MutableStateFlow(false)
+    val isRitualMode: StateFlow<Boolean> = _isRitualMode.asStateFlow()
+
+    private val _volume = MutableStateFlow(1f)
+    val volume: StateFlow<Float> = _volume.asStateFlow()
+
+    private val _userNotice = MutableStateFlow<UserNotice?>(null)
+    val userNotice: StateFlow<UserNotice?> = _userNotice.asStateFlow()
+
+    private var chromeHideJob: Job? = null
+    private var idleSessionJob: Job? = null
+    private var currentSessionId: Long? = null
+
     private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
+    private var analysisScheduler: AnalysisScheduler? = null
+    
+    private val playedHistory = mutableListOf<Long>()
+    private val maxHistorySize = 8
 
     fun loadSongs() {
         viewModelScope.launch {
-            _songs.value = repository.getLocalSongs()
+            repository.syncWithMediaStore()
         }
     }
 
@@ -68,7 +193,73 @@ class MusicViewModel(
         _searchQuery.value = query
     }
 
+    fun toggleChrome() {
+        _isChromeVisible.value = !_isChromeVisible.value
+        if (_isChromeVisible.value) {
+            startChromeTimer()
+        }
+    }
+
+    fun showChrome() {
+        _isChromeVisible.value = true
+        startChromeTimer()
+    }
+
+    fun setHighRefreshRate(enabled: Boolean) {
+        _isHighRefreshRate.value = enabled
+    }
+
+    private fun startChromeTimer() {
+        chromeHideJob?.cancel()
+        chromeHideJob = viewModelScope.launch {
+            delay(2200)
+            _isChromeVisible.value = false
+        }
+    }
+
+    private suspend fun suggestNextSong(currentSong: Song): Song? {
+        val currentProfile = currentProfile.value ?: return null
+        val candidates = repository.getReadyProfilesWithSongs()
+        
+        val suggestion = SimilarityEngine.suggestNext(
+            currentSong = currentSong,
+            currentProfile = currentProfile,
+            candidates = candidates,
+            historyIds = playedHistory.toSet()
+        )
+
+        // Si hay sugerencia, planificar la transición inmediatamente
+        if (suggestion != null) {
+            val nextProfile = candidates.find { it.first.id == suggestion.id }?.second
+            val currentTape = currentTape.value
+            val nextTape = repository.getTapeFlow(suggestion.id).first()
+
+            val plan = TransitEngine.planCrossfade(
+                currentDurationMs = currentSong.duration,
+                currentTape = currentTape,
+                nextTape = nextTape,
+                currentProfile = currentProfile,
+                nextProfile = nextProfile
+            )
+            _currentTransitionPlan.value = plan
+            sendTransitionPlanToService(plan)
+        }
+
+        return suggestion
+    }
+
+    private fun sendTransitionPlanToService(plan: TransitEngine.TransitionPlan) {
+        val controller = mediaController ?: return
+        val args = Bundle().apply {
+            putLong("end_point_ms", plan.endPointMs)
+            putLong("start_point_ms", plan.startPointMs)
+            putLong("fade_duration_ms", plan.fadeDurationMs)
+        }
+        controller.sendCustomCommand(SessionCommand("SET_TRANSITION_PLAN", Bundle.EMPTY), args)
+    }
+
     fun initController(context: Context) {
+        analysisScheduler = AnalysisScheduler.getInstance(context)
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
         mediaControllerFuture?.addListener({
@@ -76,11 +267,58 @@ class MusicViewModel(
             mediaController?.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     _isPlaying.value = isPlaying
+                    if (isPlaying) {
+                        idleSessionJob?.cancel()
+                    } else {
+                        scheduleIdleSessionEnd()
+                    }
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    _userNotice.value = UserNotice("No se pudo leer el archivo")
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     val currentSongId = mediaItem?.mediaId?.toLongOrNull()
-                    _currentSong.value = _songs.value.find { it.id == currentSongId }
+                    val newSong = songs.value.find { it.id == currentSongId }
+                    _currentSong.value = newSong
+                    
+                    // Actualizar historial y Sesión
+                    if (newSong != null) {
+                        playedHistory.remove(newSong.id)
+                        playedHistory.add(newSong.id)
+                        if (playedHistory.size > maxHistorySize) {
+                            playedHistory.removeAt(0)
+                        }
+
+                        viewModelScope.launch {
+                            if (currentSessionId == null) {
+                                currentSessionId = repository.startSession(if (_isRitualMode.value) "ritual" else "presence")
+                            }
+                            currentSessionId?.let { repository.appendTrackToSession(it, newSong.id) }
+                        }
+                    }
+
+                    // Si la canción terminó automáticamente, preparar la siguiente por similitud
+                    // EXCEPTO en modo Ritual
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && newSong != null && !_isRitualMode.value) {
+                        viewModelScope.launch {
+                            val nextSuggestion = suggestNextSong(newSong)
+                            if (nextSuggestion != null) {
+                                val nextMediaItem = MediaItem.Builder()
+                                    .setMediaId(nextSuggestion.id.toString())
+                                    .setUri(nextSuggestion.contentUri)
+                                    .build()
+                                
+                                val nextIndex = mediaController?.nextMediaItemIndex ?: -1
+                                if (nextIndex != -1) {
+                                    mediaController?.replaceMediaItem(nextIndex, nextMediaItem)
+                                } else {
+                                    mediaController?.addMediaItem(nextMediaItem)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 override fun onRepeatModeChanged(repeatMode: Int) {
@@ -100,11 +338,30 @@ class MusicViewModel(
         }, MoreExecutors.directExecutor())
     }
 
+    fun consumeNotice() {
+        _userNotice.value = null
+    }
+
+    private fun scheduleIdleSessionEnd() {
+        idleSessionJob?.cancel()
+        idleSessionJob = viewModelScope.launch {
+            delay(IDLE_SESSION_MS)
+            currentSessionId?.let { repository.endSession(it) }
+            currentSessionId = null
+        }
+    }
+
     private fun startProgressUpdate() {
         viewModelScope.launch {
             while (true) {
                 _playbackProgress.value = mediaController?.currentPosition ?: 0L
-                delay(1000)
+                val playing = mediaController?.isPlaying == true
+                val delayMs = when {
+                    !playing -> 500L
+                    _isHighRefreshRate.value -> 32L
+                    else -> 250L
+                }
+                delay(delayMs)
             }
         }
     }
@@ -114,7 +371,7 @@ class MusicViewModel(
         
         // Cargar lista actual al controlador si no está
         if (controller.mediaItemCount == 0) {
-            val mediaItems = _songs.value.map { s ->
+            val mediaItems = songs.value.map { s ->
                 MediaItem.Builder()
                     .setMediaId(s.id.toString())
                     .setUri(s.contentUri)
@@ -123,13 +380,14 @@ class MusicViewModel(
             controller.setMediaItems(mediaItems)
         }
 
-        val index = _songs.value.indexOfFirst { it.id == song.id }
+        val index = songs.value.indexOfFirst { it.id == song.id }
         if (index != -1) {
             controller.seekTo(index, 0)
             controller.prepare()
             controller.play()
         }
         _currentSong.value = song
+        analysisScheduler?.boostAnalysis(song.id)
     }
 
     fun togglePlayPause() {
@@ -156,6 +414,24 @@ class MusicViewModel(
         controller.shuffleModeEnabled = !controller.shuffleModeEnabled
     }
 
+    fun toggleRitualMode() {
+        val nextMode = !_isRitualMode.value
+        _isRitualMode.value = nextMode
+        
+        // Notify service
+        val controller = mediaController ?: return
+        val args = Bundle().apply {
+            putBoolean("is_ritual", nextMode)
+        }
+        controller.sendCustomCommand(SessionCommand("SET_RITUAL_MODE", Bundle.EMPTY), args)
+        
+        // Reset session on mode change if needed
+        viewModelScope.launch {
+            currentSessionId?.let { repository.endSession(it) }
+            currentSessionId = repository.startSession(if (nextMode) "ritual" else "presence")
+        }
+    }
+
     fun skipNext() {
         mediaController?.seekToNext()
     }
@@ -164,14 +440,67 @@ class MusicViewModel(
         mediaController?.seekToPrevious()
     }
 
-    fun seekTo(position: Long) {
-        mediaController?.seekTo(position)
+    fun setVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        _volume.value = clamped
+        mediaController?.volume = clamped
+    }
+
+    fun seekTo(position: Long, snapToOnset: Boolean = false) {
+        val finalPosition = if (snapToOnset) {
+            calculateSnappedPosition(position)
+        } else {
+            position
+        }
+        mediaController?.seekTo(finalPosition)
+    }
+
+    private fun calculateSnappedPosition(position: Long): Long {
+        val tape = currentTape.value ?: return position
+        if (tape.onsetFlags.isEmpty()) return position
+
+        val hopMs = tape.hopMs.toDouble()
+        val targetFrame = (position / hopMs).toInt().coerceIn(0, tape.frameCount - 1)
+        
+        // Search window +- 180ms (~2 frames at 93ms)
+        val searchRadius = 2
+        val start = (targetFrame - searchRadius).coerceAtLeast(0)
+        val end = (targetFrame + searchRadius).coerceAtMost(tape.frameCount - 1)
+        
+        var bestFrame = targetFrame
+        var minDiff = Long.MAX_VALUE
+        
+        for (i in start..end) {
+            if (tape.onsetFlags[i] == 1.toByte()) {
+                val framePos = (i * hopMs).toLong()
+                val diff = abs(framePos - position)
+                if (diff < minDiff) {
+                    minDiff = diff
+                    bestFrame = i
+                }
+            }
+        }
+        
+        return (bestFrame * hopMs).toLong()
+    }
+
+    fun addMark() {
+        val song = currentSong.value ?: return
+        val pos = playbackProgress.value
+        viewModelScope.launch {
+            repository.addMark(song.id, pos)
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
+        idleSessionJob?.cancel()
         mediaControllerFuture?.let {
             MediaController.releaseFuture(it)
         }
+    }
+
+    companion object {
+        private const val IDLE_SESSION_MS = 30L * 60L * 1000L
     }
 }

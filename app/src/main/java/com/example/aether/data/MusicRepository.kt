@@ -4,14 +4,86 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import com.example.aether.analysis.AnalysisScheduler
+import com.example.aether.data.db.AetherDatabase
+import com.example.aether.data.db.entities.AnalysisStatus
+import com.example.aether.data.db.entities.DensityTapeEntity
+import com.example.aether.data.db.entities.MarkEntity
+import com.example.aether.data.db.entities.ProfileEntity
+import com.example.aether.data.db.entities.SessionEntity
+import com.example.aether.data.db.entities.toDomain
+import com.example.aether.data.db.entities.toEntity
 import com.example.aether.model.Song
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class MusicRepository(private val context: Context) {
 
-    suspend fun getLocalSongs(): List<Song> = withContext(Dispatchers.IO) {
-        val songs = mutableListOf<Song>()
+    private val db = AetherDatabase.getDatabase(context)
+    private val songDao = db.songDao()
+    private val profileDao = db.profileDao()
+    private val tapeDao = db.densityTapeDao()
+    private val markDao = db.markDao()
+    private val sessionDao = db.sessionDao()
+    private val analysisScheduler = AnalysisScheduler.getInstance(context)
+
+    fun getSongsFlow(): Flow<List<Song>> = songDao.getAllSongs().map { entities ->
+        entities.map { it.toDomain() }
+    }
+
+    fun getProfileFlow(songId: Long): Flow<ProfileEntity?> = profileDao.observeProfileForSong(songId)
+    
+    fun getTapeFlow(songId: Long): Flow<DensityTapeEntity?> = tapeDao.observeTapeForSong(songId)
+
+    suspend fun getTapesForSongs(songIds: List<Long>): List<DensityTapeEntity> = withContext(Dispatchers.IO) {
+        tapeDao.getTapesForSongs(songIds)
+    }
+
+    fun getMarksFlow(songId: Long): Flow<List<MarkEntity>> = markDao.observeMarksForSong(songId)
+
+    suspend fun addMark(songId: Long, positionMs: Long) = withContext(Dispatchers.IO) {
+        markDao.insertMark(MarkEntity(songId = songId, positionMs = positionMs))
+    }
+
+    suspend fun startSession(mode: String): Long = withContext(Dispatchers.IO) {
+        sessionDao.insertSession(SessionEntity(mode = mode))
+    }
+
+    suspend fun appendTrackToSession(sessionId: Long, songId: Long) = withContext(Dispatchers.IO) {
+        val session = sessionDao.getSessionById(sessionId) ?: return@withContext
+        val updatedTracks = if (session.trackIds.isBlank()) {
+            songId.toString()
+        } else {
+            "${session.trackIds},$songId"
+        }
+        sessionDao.updateSession(session.copy(trackIds = updatedTracks))
+    }
+
+    suspend fun endSession(sessionId: Long) = withContext(Dispatchers.IO) {
+        val session = sessionDao.getSessionById(sessionId) ?: return@withContext
+        sessionDao.updateSession(session.copy(endTimeMs = System.currentTimeMillis()))
+    }
+
+    fun getActiveSessionFlow(): Flow<SessionEntity?> = sessionDao.observeActiveSession()
+
+    suspend fun getActiveSession(): SessionEntity? = withContext(Dispatchers.IO) {
+        sessionDao.getActiveSession()
+    }
+
+    suspend fun getReadyProfilesWithSongs(): List<Pair<Song, ProfileEntity>> = withContext(Dispatchers.IO) {
+        val readyProfiles = profileDao.getAllReadyProfiles()
+        val songsById = songDao.getAllSongsList().associateBy { it.id }
+
+        readyProfiles.mapNotNull { profile ->
+            val song = songsById[profile.songId]?.toDomain()
+            if (song != null) song to profile else null
+        }
+    }
+
+    suspend fun syncWithMediaStore() = withContext(Dispatchers.IO) {
+        val mediaStoreSongs = mutableListOf<Song>()
         
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         
@@ -22,28 +94,26 @@ class MusicRepository(private val context: Context) {
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.DATA,
-            MediaStore.Audio.Media.ALBUM_ID
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.DATE_MODIFIED
         )
 
         val selection = StringBuilder().apply {
             append("${MediaStore.Audio.Media.IS_MUSIC} != 0")
-            // Omitir audios muy cortos o basura (como EVT_IO_*) con duración 0
             append(" AND ${MediaStore.Audio.Media.DURATION} > 0")
             append(" AND ${MediaStore.Audio.Media.DURATION} >= 30000")
-            // Omitir tonos, alarmas y notificaciones explícitamente
             append(" AND ${MediaStore.Audio.Media.IS_RINGTONE} == 0")
             append(" AND ${MediaStore.Audio.Media.IS_ALARM} == 0")
             append(" AND ${MediaStore.Audio.Media.IS_NOTIFICATION} == 0")
         }.toString()
-
-        val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
 
         context.contentResolver.query(
             collection,
             projection.toTypedArray(),
             selection,
             null,
-            sortOrder
+            null
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -52,40 +122,66 @@ class MusicRepository(private val context: Context) {
             val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+            val dateModifiedColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
 
             while (cursor.moveToNext()) {
                 val path = cursor.getString(dataColumn) ?: ""
-                
-                // Filtros adicionales por ruta para excluir carpetas específicas de apps
                 if (isExcludedPath(path)) continue
 
                 val id = cursor.getLong(idColumn)
                 val displayName = cursor.getString(displayNameColumn) ?: ""
-                
-                // Lógica de "AETHER Look": usar nombre de archivo si el título está vacío
                 val title = cursor.getString(titleColumn)?.takeIf { it.isNotBlank() && it != "<unknown>" } 
                     ?: displayName.substringBeforeLast(".")
-                
                 val artist = cursor.getString(artistColumn)?.takeIf { it.isNotBlank() && it != "<unknown>" } 
                     ?: "Artista desconocido"
-                
                 val duration = cursor.getLong(durationColumn)
                 val albumId = cursor.getLong(albumIdColumn)
+                val size = cursor.getLong(sizeColumn)
+                val dateModified = cursor.getLong(dateModifiedColumn)
                 
-                val contentUri = ContentUris.withAppendedId(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    id
-                )
-
+                val contentUri = ContentUris.withAppendedId(collection, id)
                 val albumArtUri = ContentUris.withAppendedId(
                     Uri.parse("content://media/external/audio/albumart"),
                     albumId
                 )
                 
-                songs.add(Song(id, contentUri, title, artist, duration, displayName, albumArtUri))
+                mediaStoreSongs.add(Song(id, contentUri, title, artist, duration, displayName, albumArtUri, size, dateModified))
             }
         }
-        songs
+
+        val existingSongs = songDao.getAllSongsList()
+        val existingById = existingSongs.associateBy { it.id }
+        val mediaStoreSongIds = mediaStoreSongs.map { it.id }.toSet()
+
+        val songsToDelete = existingSongs.filter { entity -> entity.id !in mediaStoreSongIds }
+        if (songsToDelete.isNotEmpty()) {
+            songDao.deleteSongs(songsToDelete)
+        }
+
+        mediaStoreSongs.forEach { song ->
+            val existing = existingById[song.id]
+            val needsUpsert = existing == null || existing.size != song.size || existing.dateModified != song.dateModified
+            
+            if (needsUpsert) {
+                songDao.insertSongs(listOf(song.toEntity()))
+                
+                // Si cambió o es nueva, invalidamos/creamos perfil PENDING
+                profileDao.upsertProfile(ProfileEntity(
+                    songId = song.id,
+                    status = AnalysisStatus.PENDING
+                ))
+                
+                // Programamos análisis en background
+                analysisScheduler.scheduleBackgroundAnalysis(song.id)
+            }
+        }
+    }
+
+    suspend fun getLocalSongs(): List<Song> = withContext(Dispatchers.IO) {
+        // Mantener compatibilidad temporal si es necesario, pero migrar a sync + flow
+        syncWithMediaStore()
+        songDao.getAllSongsList().map { it.toDomain() }
     }
 
     private fun isExcludedPath(path: String): Boolean {
@@ -101,4 +197,5 @@ class MusicRepository(private val context: Context) {
         )
         return excludedFolders.any { path.contains(it, ignoreCase = true) }
     }
+
 }

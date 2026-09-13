@@ -152,12 +152,31 @@ Siguiendo las reglas de `AETHER_EVOLUTION_SPEC.md`, cada fase se integrará sobr
 **Objetivo:** Cerrar el ciclo de experiencia del usuario.
 
 *   **Requisitos AETHER_SPEC:** REQ-8, REQ-10.
-*   **Implementación Prevista:**
-    *   Modo Ritual (bucle infinito o residuo de fin).
+*   **Estado:** COMPLETADO (ritual en Presence + `SessionMapScreen`; no se creó `RitualScreen` aparte).
+*   **Implementación:**
+    *   Modo Ritual (sin avance automático + residuo de fin).
     *   Persistencia de `SessionRecord`.
     *   Pinch gesture para abrir `SessionMap`.
 *   **Archivos Afectados:**
-    *   **CREAR:** `ui/ritual/RitualScreen.kt`, `ui/session/SessionMapScreen.kt`, `data/db/SessionEntity.kt`.
+    *   **CREAR:** `ui/session/SessionMapScreen.kt`, `data/db/SessionEntity.kt`.
+
+---
+
+## FASE 13 — Optimización, Errores y Hardening
+**Objetivo:** Estabilidad de producto: fallos de archivo, batería, memoria y estados de error.
+
+*   **Requisitos AETHER_SPEC:** §11 Estados y errores, §12 Performance.
+*   **Equivalente Evolution Spec:** FASE 14 (el informe de avance numeró Session Map como Fase 12).
+*   **Estado:** COMPLETADO.
+*   **Implementación:**
+    *   Skip + snack en archivos ilegibles/corruptos (`PlaybackService.onPlayerError`).
+    *   Análisis single-flight con perfil `ERROR` persistido; WorkManager no reintenta corruptos.
+    *   DSP streaming O(n), cuantización percentil 2–98, cooldown de onset.
+    *   Shader AGSL pausado si no hay playback; fallback Canvas en API < 33.
+    *   Pantalla de permiso, biblioteca vacía con escanear, idle de sesión 30 min.
+*   **Archivos Afectados:**
+    *   **MODIFICAR:** `PlaybackService.kt`, `AnalysisScheduler.kt`, `AudioAnalyzer.kt`, `AudioDecoder.kt`, `MusicViewModel.kt`, `MusicScreens.kt`, `MainActivity.kt`, `PresenceShader.kt`, `DensityTapeWidget.kt`.
+    *   **CREAR:** `util/AetherLog.kt`, `analysis/AnalysisException.kt`.
 
 ---
 

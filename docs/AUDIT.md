@@ -2,11 +2,11 @@
 
 ## A. Resumen ejecutivo
 
-El proyecto **AETHER** se encuentra actualmente en una fase de **reproductor convencional sólido**. Tiene una base funcional robusta en cuanto a escaneo de archivos, manejo de permisos, integración con el sistema (MediaSession) e interfaz de usuario moderna (Material 3 / Compose).
+El proyecto **AETHER** es un reproductor local inmersivo (Presence) con análisis DSP, tránsito onset-aware, ritual, sesiones y hardening de errores. Conserva la base Media3 / Compose / MediaStore.
 
 *   **Sólido**: La arquitectura de reproducción basada en Media3, el manejo de permisos dinámicos y la UI básica.
-*   **Incompleto**: No existe el motor de análisis de audio, ni la persistencia de perfiles musicales, ni el motor de transición inteligente.
-*   **Mayor trabajo pendiente**: La implementación del pipeline de análisis (FFT/RMS) para generar los `TrackProfile` y `DensityTape`, y la transformación de la UI hacia el modo **Presence**.
+*   **Sólido (2026-09)**: persistencia Room, análisis DSP, Presence, tránsito onset-aware, ritual, sesiones y hardening de errores.
+*   **Residual**: alineación fina de beat-grid en cruces; BPM sigue siendo una estimación simple.
 
 ---
 
@@ -24,7 +24,7 @@ Repository (MusicRepository / MediaStore)
 Audio Engine (Media3 / ExoPlayer / MediaSessionService)
 ```
 
-No hay persistencia local (DB) ni lógica de procesamiento de señales de audio (DSP) implementada.
+Persistencia Room (`AetherDatabase`) y DSP (`AudioAnalyzer` / `AnalysisScheduler`) integrados sobre el MVVM existente.
 
 ---
 
@@ -34,18 +34,24 @@ No hay persistencia local (DB) ni lógica de procesamiento de señales de audio 
 | :--- | :--- | :--- | :--- | :--- |
 | **CORE-001** | Escaneo MediaStore | **IMPLEMENTADO** | `MusicRepository` | Incluye filtros por duración y carpetas. |
 | **CORE-002** | Reproducción Background | **IMPLEMENTADO** | `PlaybackService` | Usa MediaSessionService de Media3. |
-| **DATA-001** | TrackRecord | **PARCIAL** | `Song.kt` | Existe el modelo de datos pero no es persistente. |
-| **DATA-002** | TrackProfile | **NO IMPLEMENTADO** | - | No hay estructura para BPM, Energy, Centroid, etc. |
-| **DATA-003** | DensityTape | **NO IMPLEMENTADO** | - | Falta la serie temporal de audio. |
-| **ANA-001** | Pipeline de Análisis | **NO IMPLEMENTADO** | - | No existe lógica de FFT, RMS u Onset detection. |
-| **ENG-001** | TransitEngine | **NO IMPLEMENTADO** | - | La transición es la nativa de ExoPlayer. |
-| **ENG-002** | Crossfade Onset-aware | **NO IMPLEMENTADO** | - | Requiere implementación de doble player. |
-| **UX-001** | Presence Mode | **NO IMPLEMENTADO** | - | La UI actual es de tipo lista estándar. |
-| **UX-002** | DensityTape Widget | **NO IMPLEMENTADO** | - | Falta el visualizador de onda interactivo. |
-| **UX-003** | Presence Shader | **NO IMPLEMENTADO** | - | No hay integración de shaders AGSL/GLSL. |
-| **UX-004** | Gestos Presence | **NO IMPLEMENTADO** | - | Solo gestos estándar de Compose/Android. |
-| **UX-005** | Ritual Mode | **NO IMPLEMENTADO** | - | Falta la lógica de terminación de pista específica. |
-| **SYS-001** | Sesiones | **NO IMPLEMENTADO** | - | No se registran SessionRecords. |
+| **DATA-001** | TrackRecord | **IMPLEMENTADO** | `SongEntity` | Persistente en Room con invalidation key. |
+| **DATA-002** | TrackProfile | **IMPLEMENTADO** | `ProfileEntity` | BPM, energy, centroid, embedding 16. |
+| **DATA-003** | DensityTape | **IMPLEMENTADO** | `DensityTapeEntity` | Energy/centroid/flux/onsets uint8. |
+| **ANA-001** | Pipeline de Análisis | **IMPLEMENTADO** | `AudioAnalyzer` | FFT, RMS, onset, BPM; un análisis a la vez. |
+| **ENG-001** | TransitEngine | **IMPLEMENTADO** | `TransitEngine.kt` | Plan de cruce por onsets. |
+| **ENG-002** | Crossfade Onset-aware | **IMPLEMENTADO** | `PlaybackService` | Doble ExoPlayer + fade. |
+| **UX-001** | Presence Mode | **IMPLEMENTADO** | `PresenceScreen` | Home full-bleed. |
+| **UX-002** | DensityTape Widget | **IMPLEMENTADO** | `DensityTapeWidget` | Seek + placeholder si no hay perfil. |
+| **UX-003** | Presence Shader | **IMPLEMENTADO** | `PresenceShader` | AGSL API 33+; fallback Canvas. |
+| **UX-004** | Gestos Presence | **IMPLEMENTADO** | `PresenceScreen` | Tap, flick, volumen, pinch, mark. |
+| **UX-005** | Ritual Mode | **IMPLEMENTADO** | `PlaybackService` / Presence | Sin auto-next + residuo. |
+| **SYS-001** | Sesiones | **IMPLEMENTADO** | `SessionEntity` / `SessionMapScreen` | Historial + pinch. |
+| **SYS-002** | Archivo ilegible | **IMPLEMENTADO** | `PlaybackService` + snack | Skip al siguiente + aviso silencioso. |
+| **SYS-003** | Permiso denegado | **IMPLEMENTADO** | `PermissionScreen` | Pantalla única de acceso a audio. |
+| **SYS-004** | Biblioteca vacía | **IMPLEMENTADO** | `EmptyState` | Texto corto + botón escanear. |
+| **SYS-005** | Análisis fallido | **IMPLEMENTADO** | `AnalysisStatus.ERROR` | Pista reproducible; cinta placeholder. |
+| **PERF-001** | Shader API < 33 | **IMPLEMENTADO** | `PresenceShader` fallback Canvas | AGSL solo en API 33+. |
+| **PERF-002** | Visualización en pausa | **IMPLEMENTADO** | `PresenceVisualizer(isPlaying)` | No anima ni hace polling de cruce en pausa. |
 
 ---
 
