@@ -11,5 +11,11 @@ data class Song(
     val displayName: String,
     val albumArtUri: Uri? = null,
     val size: Long,
-    val dateModified: Long
-)
+    val dateModified: Long,
+    val source: String = SOURCE_MEDIASTORE
+) {
+    companion object {
+        const val SOURCE_MEDIASTORE = "mediastore"
+        const val SOURCE_IMPORT = "import"
+    }
+}

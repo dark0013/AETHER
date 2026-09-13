@@ -68,6 +68,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.documentfile)
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)

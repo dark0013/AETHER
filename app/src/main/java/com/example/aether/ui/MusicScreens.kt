@@ -12,6 +12,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +53,17 @@ fun MusicApp(viewModel: MusicViewModel) {
     var showNowPlaying by remember { mutableStateOf(false) }
     var editingPlaylistId by remember { mutableStateOf<Long?>(null) }
 
+    val folderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let { viewModel.importFolder(it) }
+    }
+    val filesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        viewModel.importFiles(uris)
+    }
+
     LaunchedEffect(activeScreen) {
         viewModel.setHighRefreshRate(activeScreen == "presence")
     }
@@ -77,7 +90,9 @@ fun MusicApp(viewModel: MusicViewModel) {
                     onEditPlaylist = { id ->
                         editingPlaylistId = id
                         activeScreen = "playlist_edit"
-                    }
+                    },
+                    onImportFolder = { folderLauncher.launch(null) },
+                    onImportFiles = { filesLauncher.launch(arrayOf("audio/*")) }
                 )
             }
             "playlist_edit" -> {
@@ -98,7 +113,9 @@ fun MusicApp(viewModel: MusicViewModel) {
                 PresenceScreen(
                     viewModel = viewModel,
                     onOpenLibrary = { activeScreen = "library" },
-                    onOpenSessionMap = { activeScreen = "map" }
+                    onOpenSessionMap = { activeScreen = "map" },
+                    onImportFolder = { folderLauncher.launch(null) },
+                    onImportFiles = { filesLauncher.launch(arrayOf("audio/*")) }
                 )
             }
         }
@@ -189,7 +206,9 @@ fun LibraryScreen(
     searchQuery: String,
     onBack: () -> Unit,
     onShowNowPlaying: () -> Unit,
-    onEditPlaylist: (Long?) -> Unit
+    onEditPlaylist: (Long?) -> Unit,
+    onImportFolder: () -> Unit,
+    onImportFiles: () -> Unit
 ) {
     val playlists by viewModel.playlists.collectAsState()
     var selectedTab by remember { mutableStateOf(0) }
@@ -200,7 +219,9 @@ fun LibraryScreen(
             AETHERTopBar(
                 searchQuery = searchQuery,
                 onSearchChange = { viewModel.onSearchQueryChange(it) },
-                onBack = onBack
+                onBack = onBack,
+                onImportFolder = onImportFolder,
+                onImportFiles = onImportFiles
             )
         },
         bottomBar = {
@@ -249,7 +270,9 @@ fun LibraryScreen(
                     if (songs.isEmpty()) {
                         EmptyState(
                             isSearch = searchQuery.isNotEmpty(),
-                            onScan = { viewModel.loadSongs() }
+                            onScan = { viewModel.loadSongs() },
+                            onImportFolder = onImportFolder,
+                            onImportFiles = onImportFiles
                         )
                     } else {
                         SongList(
@@ -293,7 +316,9 @@ fun LibraryScreen(
 fun AETHERTopBar(
     searchQuery: String, 
     onSearchChange: (String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onImportFolder: () -> Unit,
+    onImportFiles: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -316,8 +341,15 @@ fun AETHERTopBar(
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 2.sp,
                     color = MaterialTheme.colorScheme.primary
-                )
+                ),
+                modifier = Modifier.weight(1f)
             )
+            IconButton(onClick = onImportFolder) {
+                Icon(Icons.Rounded.CreateNewFolder, contentDescription = "Importar carpeta")
+            }
+            IconButton(onClick = onImportFiles) {
+                Icon(Icons.Rounded.AudioFile, contentDescription = "Elegir archivos")
+            }
         }
         
         TextField(
@@ -673,7 +705,12 @@ fun NowPlayingScreen(
 }
 
 @Composable
-fun EmptyState(isSearch: Boolean, onScan: (() -> Unit)? = null) {
+fun EmptyState(
+    isSearch: Boolean,
+    onScan: (() -> Unit)? = null,
+    onImportFolder: (() -> Unit)? = null,
+    onImportFiles: (() -> Unit)? = null
+) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
@@ -688,10 +725,24 @@ fun EmptyState(isSearch: Boolean, onScan: (() -> Unit)? = null) {
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (!isSearch && onScan != null) {
+            if (!isSearch) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Escanea el teléfono o elige una carpeta/archivos a mano.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = onScan) {
-                    Text("Escanear")
+                if (onScan != null) {
+                    Button(onClick = onScan) { Text("Escanear") }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                if (onImportFolder != null) {
+                    OutlinedButton(onClick = onImportFolder) { Text("Elegir carpeta") }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                if (onImportFiles != null) {
+                    OutlinedButton(onClick = onImportFiles) { Text("Elegir archivos") }
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.example.aether.ui
 import android.content.ComponentName
 import android.content.Context
 import android.media.AudioManager
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
@@ -199,6 +200,28 @@ class MusicViewModel(
     fun loadSongs() {
         viewModelScope.launch {
             repository.syncWithMediaStore()
+            repository.rescanImported()
+        }
+    }
+
+    fun importFolder(uri: Uri) {
+        viewModelScope.launch {
+            val count = repository.importFolder(uri)
+            _userNotice.value = UserNotice(
+                if (count == 0) "No se encontró audio en esa carpeta"
+                else "Importadas $count canciones"
+            )
+        }
+    }
+
+    fun importFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val count = repository.importFiles(uris)
+            _userNotice.value = UserNotice(
+                if (count == 0) "No se pudieron leer esos archivos"
+                else "Importadas $count canciones"
+            )
         }
     }
 

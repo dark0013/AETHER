@@ -31,7 +31,9 @@ import com.example.aether.ui.formatDuration
 fun PresenceScreen(
     viewModel: MusicViewModel,
     onOpenLibrary: () -> Unit,
-    onOpenSessionMap: () -> Unit
+    onOpenSessionMap: () -> Unit,
+    onImportFolder: () -> Unit,
+    onImportFiles: () -> Unit
 ) {
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
@@ -185,7 +187,48 @@ fun PresenceScreen(
             }
         }
 
-        // 3. Chrome Efímero
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp)
+                .padding(top = if (isRitualMode) 72.dp else 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onOpenLibrary) {
+                Icon(Icons.Rounded.LibraryMusic, contentDescription = "Biblioteca", tint = Color.White)
+            }
+            IconButton(onClick = onImportFolder) {
+                Icon(Icons.Rounded.CreateNewFolder, contentDescription = "Importar carpeta", tint = Color.White)
+            }
+            IconButton(onClick = onImportFiles) {
+                Icon(Icons.Rounded.AudioFile, contentDescription = "Elegir archivos", tint = Color.White)
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            if (profile?.bpm != null && profile!!.bpm!! > 0) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "${profile!!.bpm!!.toInt()} BPM",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            IconButton(onClick = { viewModel.toggleRitualMode() }) {
+                Icon(
+                    Icons.Rounded.Anchor,
+                    contentDescription = "Ritual",
+                    tint = if (isRitualMode) ritualAmber else Color.White
+                )
+            }
+        }
+
+        // 3. Chrome efímero (título / play)
         AnimatedVisibility(
             visible = isChromeVisible,
             enter = fadeIn() + expandVertically(),
@@ -193,43 +236,6 @@ fun PresenceScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // Top controls
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 24.dp)
-                        .padding(top = if (isRitualMode) 72.dp else 24.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onOpenLibrary) {
-                        Icon(Icons.Rounded.LibraryMusic, contentDescription = "Library", tint = Color.White)
-                    }
-
-                    IconButton(onClick = { viewModel.toggleRitualMode() }) {
-                        Icon(
-                            Icons.Rounded.Anchor,
-                            contentDescription = "Ritual",
-                            tint = if (isRitualMode) ritualAmber else Color.White
-                        )
-                    }
-                    
-                    if (profile?.bpm != null && profile!!.bpm!! > 0) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                text = "${profile!!.bpm!!.toInt()} BPM",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-
                 // Center info
                 Column(
                     modifier = Modifier

@@ -15,7 +15,8 @@ data class SongEntity(
     val displayName: String,
     val albumArtUri: String?,
     val size: Long,
-    val dateModified: Long
+    val dateModified: Long,
+    val source: String = com.example.aether.model.Song.SOURCE_MEDIASTORE
 )
 
 fun SongEntity.toDomain(): Song = Song(
@@ -27,7 +28,8 @@ fun SongEntity.toDomain(): Song = Song(
     displayName = displayName,
     albumArtUri = albumArtUri?.let { Uri.parse(it) },
     size = size,
-    dateModified = dateModified
+    dateModified = dateModified,
+    source = source
 )
 
 fun Song.toEntity(): SongEntity = SongEntity(
@@ -39,5 +41,6 @@ fun Song.toEntity(): SongEntity = SongEntity(
     displayName = displayName,
     albumArtUri = albumArtUri?.toString(),
     size = size,
-    dateModified = dateModified
+    dateModified = dateModified,
+    source = source
 )

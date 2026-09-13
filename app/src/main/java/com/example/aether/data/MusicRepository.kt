@@ -189,7 +189,9 @@ class MusicRepository(private val context: Context) {
         val existingById = existingSongs.associateBy { it.id }
         val mediaStoreSongIds = mediaStoreSongs.map { it.id }.toSet()
 
-        val songsToDelete = existingSongs.filter { entity -> entity.id !in mediaStoreSongIds }
+        val songsToDelete = existingSongs.filter { entity ->
+            entity.source != Song.SOURCE_IMPORT && entity.id !in mediaStoreSongIds
+        }
         if (songsToDelete.isNotEmpty()) {
             songDao.deleteSongs(songsToDelete)
         }
@@ -214,9 +216,46 @@ class MusicRepository(private val context: Context) {
     }
 
     suspend fun getLocalSongs(): List<Song> = withContext(Dispatchers.IO) {
-        // Mantener compatibilidad temporal si es necesario, pero migrar a sync + flow
         syncWithMediaStore()
+        rescanImported()
         songDao.getAllSongsList().map { it.toDomain() }
+    }
+
+    suspend fun importFolder(treeUri: Uri): Int = withContext(Dispatchers.IO) {
+        MusicImport.persistUri(context, treeUri, isTree = true)
+        upsertImported(MusicImport.collectFromTree(context, treeUri).mapNotNull { MusicImport.readSong(context, it) })
+    }
+
+    suspend fun importFiles(uris: List<Uri>): Int = withContext(Dispatchers.IO) {
+        uris.forEach { MusicImport.persistUri(context, it, isTree = false) }
+        upsertImported(uris.mapNotNull { MusicImport.readSong(context, it) })
+    }
+
+    suspend fun rescanImported(): Int = withContext(Dispatchers.IO) {
+        val fromTrees = MusicImport.persistedTrees(context).flatMap { tree ->
+            MusicImport.collectFromTree(context, tree)
+        }
+        val fromFiles = MusicImport.persistedFiles(context)
+        upsertImported((fromTrees + fromFiles).distinct().mapNotNull { MusicImport.readSong(context, it) })
+    }
+
+    private suspend fun upsertImported(songs: List<Song>): Int {
+        if (songs.isEmpty()) return 0
+        val existingByUri = songDao.getAllSongsList().associateBy { it.contentUri }
+        var added = 0
+        songs.forEach { song ->
+            val existing = existingByUri[song.contentUri.toString()]
+            val needsUpsert = existing == null || existing.size != song.size
+            if (needsUpsert) {
+                songDao.insertSongs(listOf(song.toEntity()))
+                profileDao.upsertProfile(
+                    ProfileEntity(songId = song.id, status = AnalysisStatus.PENDING)
+                )
+                analysisScheduler.scheduleBackgroundAnalysis(song.id)
+                added++
+            }
+        }
+        return added
     }
 
     private fun isExcludedPath(path: String): Boolean {
