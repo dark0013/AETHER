@@ -1,6 +1,7 @@
 package com.example.aether.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -35,10 +37,13 @@ import com.example.aether.ui.playlist.PlaylistEditorScreen
 import com.example.aether.ui.playlist.PlaylistListPanel
 import com.example.aether.ui.presence.PresenceScreen
 import com.example.aether.ui.session.SessionMapScreen
+import com.example.aether.ui.skin.LocalSkin
+import com.example.aether.ui.skin.ScreenTransition
+import com.example.aether.ui.skin.rememberPlayButtonScale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
-fun MusicApp(viewModel: MusicViewModel) {
+fun MusicApp(viewModel: MusicViewModel, skinViewModel: com.example.aether.ui.skin.SkinViewModel) {
     val songs by viewModel.filteredSongs.collectAsState()
     val allSongs by viewModel.songs.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
@@ -74,8 +79,21 @@ fun MusicApp(viewModel: MusicViewModel) {
         viewModel.consumeNotice()
     }
 
+    val skin = LocalSkin.current
     Box(modifier = Modifier.fillMaxSize()) {
-    Crossfade(targetState = activeScreen, label = "screen_switch") { screen ->
+    AnimatedContent(
+        targetState = activeScreen,
+        transitionSpec = {
+            if (skin.screenTransition == ScreenTransition.SLIDE) {
+                (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
+                    (slideOutHorizontally { -it / 3 } + fadeOut())
+            } else {
+                fadeIn() togetherWith fadeOut()
+            }
+        },
+        label = "screen_switch",
+        modifier = Modifier.fillMaxSize()
+    ) { screen ->
         when (screen) {
             "library" -> {
                 LibraryScreen(
@@ -92,7 +110,8 @@ fun MusicApp(viewModel: MusicViewModel) {
                         activeScreen = "playlist_edit"
                     },
                     onImportFolder = { folderLauncher.launch(null) },
-                    onImportFiles = { filesLauncher.launch(arrayOf("audio/*")) }
+                    onImportFiles = { filesLauncher.launch(arrayOf("audio/*")) },
+                    skinViewModel = skinViewModel
                 )
             }
             "playlist_edit" -> {
@@ -115,7 +134,8 @@ fun MusicApp(viewModel: MusicViewModel) {
                     onOpenLibrary = { activeScreen = "library" },
                     onOpenSessionMap = { activeScreen = "map" },
                     onImportFolder = { folderLauncher.launch(null) },
-                    onImportFiles = { filesLauncher.launch(arrayOf("audio/*")) }
+                    onImportFiles = { filesLauncher.launch(arrayOf("audio/*")) },
+                    skinViewModel = skinViewModel
                 )
             }
         }
@@ -208,9 +228,11 @@ fun LibraryScreen(
     onShowNowPlaying: () -> Unit,
     onEditPlaylist: (Long?) -> Unit,
     onImportFolder: () -> Unit,
-    onImportFiles: () -> Unit
+    onImportFiles: () -> Unit,
+    skinViewModel: com.example.aether.ui.skin.SkinViewModel
 ) {
     val playlists by viewModel.playlists.collectAsState()
+    val generatingActivity by viewModel.generatingActivityPlaylists.collectAsState()
     var selectedTab by remember { mutableStateOf(0) }
     var selectingPlaylists by remember { mutableStateOf(false) }
     val selectedPlaylistIds = remember { mutableStateListOf<Long>() }
@@ -223,7 +245,8 @@ fun LibraryScreen(
                 onSearchChange = { viewModel.onSearchQueryChange(it) },
                 onBack = onBack,
                 onImportFolder = onImportFolder,
-                onImportFiles = onImportFiles
+                onImportFiles = onImportFiles,
+                skinViewModel = skinViewModel
             )
         },
         bottomBar = {
@@ -308,6 +331,22 @@ fun LibraryScreen(
                             Text("Eliminar (${selectedPlaylistIds.size})")
                         }
                     } else {
+                        TextButton(
+                            onClick = { viewModel.generateActivityPlaylists() },
+                            enabled = !generatingActivity
+                        ) {
+                            if (generatingActivity) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Armando…")
+                            } else {
+                                Text("Actividad")
+                            }
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
                         TextButton(onClick = { selectingPlaylists = true }) {
                             Text("Seleccionar")
                         }
@@ -346,7 +385,9 @@ fun LibraryScreen(
                         onEnterSelect = { id ->
                             selectingPlaylists = true
                             if (id !in selectedPlaylistIds) selectedPlaylistIds.add(id)
-                        }
+                        },
+                        generatingActivity = generatingActivity,
+                        onGenerateActivity = { viewModel.generateActivityPlaylists() }
                     )
                 }
             }
@@ -386,7 +427,8 @@ fun AETHERTopBar(
     onSearchChange: (String) -> Unit,
     onBack: () -> Unit,
     onImportFolder: () -> Unit,
-    onImportFiles: () -> Unit
+    onImportFiles: () -> Unit,
+    skinViewModel: com.example.aether.ui.skin.SkinViewModel
 ) {
     Column(
         modifier = Modifier
@@ -400,7 +442,11 @@ fun AETHERTopBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White)
+                Icon(
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onBackground
+                )
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
@@ -415,7 +461,8 @@ fun AETHERTopBar(
             AetherSettingsButton(
                 onImportFolder = onImportFolder,
                 onImportFiles = onImportFiles,
-                tint = Color.White
+                skinViewModel = skinViewModel,
+                tint = MaterialTheme.colorScheme.onBackground
             )
         }
         
@@ -483,7 +530,7 @@ fun SongItem(song: Song, isSelected: Boolean, analysisStatus: String? = null, on
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(MaterialTheme.shapes.small)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
@@ -559,6 +606,7 @@ fun MiniPlayer(
             .clickable(onClick = onClick)
             .shadow(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
         tonalElevation = 4.dp
     ) {
         Column {
@@ -604,12 +652,15 @@ fun MiniPlayer(
                     )
                 }
                 
+                val playScale = rememberPlayButtonScale(isPlaying)
                 IconButton(onClick = onTogglePlayPause) {
                     Icon(
                         if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier
+                            .size(32.dp)
+                            .graphicsLayer(scaleX = playScale, scaleY = playScale)
                     )
                 }
             }
@@ -643,13 +694,17 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(24.dp))
+                .clip(MaterialTheme.shapes.large)
                 .background(
                     Brush.verticalGradient(
                         listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     )
                 )
-                .shadow(elevation = 20.dp, shape = RoundedCornerShape(24.dp), spotColor = MaterialTheme.colorScheme.primary),
+                .shadow(
+                    elevation = 20.dp,
+                    shape = MaterialTheme.shapes.large,
+                    spotColor = MaterialTheme.colorScheme.primary
+                ),
             contentAlignment = Alignment.Center
         ) {
             AsyncImage(
@@ -745,17 +800,20 @@ fun NowPlayingScreen(
                 
                 Spacer(modifier = Modifier.width(16.dp))
                 
+                val playScale = rememberPlayButtonScale(isPlaying)
                 Surface(
                     onClick = onTogglePlayPause,
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(72.dp)
+                    modifier = Modifier
+                        .size(72.dp)
+                        .graphicsLayer(scaleX = playScale, scaleY = playScale)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = null,
-                            tint = Color.Black,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(40.dp)
                         )
                     }

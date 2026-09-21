@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import com.example.aether.analysis.ActivityPlaylistBuilder
 import com.example.aether.analysis.AnalysisScheduler
 import com.example.aether.data.db.AetherDatabase
 import com.example.aether.data.db.entities.AnalysisStatus
@@ -76,6 +77,75 @@ class MusicRepository(private val context: Context) {
     suspend fun deletePlaylists(ids: List<Long>) = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
         playlistDao.deletePlaylists(ids)
+    }
+
+    data class ActivityPlaylistSyncResult(
+        val analyzedCount: Int,
+        val libraryCount: Int,
+        val upserted: List<Pair<ActivityPlaylistBuilder.ActivityKind, Int>>,
+        val skipped: List<ActivityPlaylistBuilder.ActivityKind>
+    )
+
+    suspend fun syncActivityPlaylists(): ActivityPlaylistSyncResult = withContext(Dispatchers.IO) {
+        val ready = getReadyProfilesWithSongs()
+        val libraryCount = songDao.getAllSongsList().size
+        val built = ActivityPlaylistBuilder.build(
+            ready.map { ActivityPlaylistBuilder.AnalyzedTrack(it.first.id, it.second) }
+        )
+        val upserted = mutableListOf<Pair<ActivityPlaylistBuilder.ActivityKind, Int>>()
+        val skipped = mutableListOf<ActivityPlaylistBuilder.ActivityKind>()
+        for (kind in ActivityPlaylistBuilder.ActivityKind.entries) {
+            val songIds = built[kind]
+            if (songIds.isNullOrEmpty()) {
+                playlistDao.deleteBySource(PlaylistEntity.activitySource(kind.id))
+                skipped += kind
+            } else {
+                upsertActivityPlaylist(kind, songIds)
+                upserted += kind to songIds.size
+            }
+        }
+        ActivityPlaylistSyncResult(
+            analyzedCount = ready.size,
+            libraryCount = libraryCount,
+            upserted = upserted,
+            skipped = skipped
+        )
+    }
+
+    private suspend fun upsertActivityPlaylist(
+        kind: ActivityPlaylistBuilder.ActivityKind,
+        songIds: List<Long>
+    ) {
+        val source = PlaylistEntity.activitySource(kind.id)
+        val existing = playlistDao.getBySource(source)
+        val now = System.currentTimeMillis()
+        if (existing != null) {
+            playlistDao.updatePlaylist(existing.copy(updatedAtMs = now))
+            playlistDao.replaceTracks(existing.id, songIds)
+            return
+        }
+        val name = unusedPlaylistName(kind.displayName, excludeId = -1L)
+        val id = playlistDao.insertPlaylist(
+            PlaylistEntity(
+                name = name,
+                createdAtMs = now,
+                updatedAtMs = now,
+                source = source
+            )
+        )
+        playlistDao.replaceTracks(id, songIds)
+    }
+
+    private suspend fun unusedPlaylistName(desired: String, excludeId: Long): String {
+        if (playlistDao.countByName(desired, excludeId) == 0) return desired
+        val alt = "$desired (actividad)".take(MAX_PLAYLIST_NAME)
+        if (playlistDao.countByName(alt, excludeId) == 0) return alt
+        var n = 2
+        while (true) {
+            val candidate = "$desired ($n)".take(MAX_PLAYLIST_NAME)
+            if (playlistDao.countByName(candidate, excludeId) == 0) return candidate
+            n++
+        }
     }
 
     fun getSongsFlow(): Flow<List<Song>> = songDao.getAllSongs().map { entities ->

@@ -7,7 +7,8 @@ Estética oscura (#121212) con acento lavanda (#C4B5FD). Home = **Presence** (ge
 
 - Escanea MediaStore (música ≥ 30 s; excluye WhatsApp, ringtones, etc.).
 - **Importación manual** (engrane → Importar música): carpeta o archivos vía SAF.
-- Presence: visual shader, cinta de densidad, play/pause, seek con snap a onsets.
+- **Skins** (engrane → Apariencia): Default, Neon, XP, Winamp, Glass, Minimal, Cyberpunk. Solo cambian la vista; los gestos no.
+- Presence: visualizador según skin (barras, onda, Winamp clásico, anillo neón), cinta de densidad, play/pause, seek con snap a onsets.
 - Gestos: flick siguiente/anterior, volumen del **teléfono**, pellizco = mapa de sesión, borde izquierdo = biblioteca.
 - Play al arrancar sin tema: primera canción de la biblioteca.
 - **Ritual** (ancla): una sola canción, visual ámbar, no auto-next.
@@ -24,14 +25,31 @@ No filtra por extensión. Reproduce lo que Media3 + códecs del dispositivo perm
 
 ```text
 UI Compose (Presence / Biblioteca / Playlists / Sesión)
+        ↓  LocalSkin
+Skin Engine (7 skins, DataStore)     Gesture Engine     Playback Engine
         ↓
 MusicViewModel (StateFlow)
         ↓
 MusicRepository → Room + MediaStore + SAF
         ↓
 PlaybackService (Media3, dos ExoPlayers)
-AnalysisScheduler (WorkManager + mutex)
 ```
+
+## Skins
+
+Ajustes (engrane) → **Apariencia**. Elige una de las 7 skins de la maqueta. Se guarda en DataStore (`selected_skin_id`) y se aplica al instante en Presence, lista, mini player, Now Playing y settings. Gestos y Media3 no cambian.
+
+| Skin | Identidad visual |
+|---|---|
+| Default | Noche púrpura, anillo lavanda `#C4B5FD`, barras suaves |
+| Neon | Magenta `#B85FFF` / `#FF80AA`, glow, barras neón |
+| XP | Cielo `#5BA3E8` → `#B8D4F0`, barras azules |
+| Winamp | Chrome gris, verdes `#39FF14` / `#7CFF00`, barras clásicas |
+| Glass | Fondo claro, onda fina |
+| Minimal | Negro puro, línea mínima |
+| Cyberpunk | Cyan `#00F0FF` + magenta `#FF2BD6`, scanlines |
+
+Código: `app/src/main/java/com/example/aether/ui/skin/` (Skin Engine). Gesture Engine y Playback Engine no dependen de las skins.
 
 ## Documentos
 

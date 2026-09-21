@@ -29,8 +29,10 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +67,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.example.aether.data.MusicRepository
+import com.example.aether.data.db.entities.PlaylistEntity
 import com.example.aether.data.db.entities.PlaylistSummary
 import com.example.aether.model.Song
 import com.example.aether.ui.MusicViewModel
@@ -81,7 +84,9 @@ fun PlaylistListPanel(
     onOpen: (Long) -> Unit,
     onPlay: (Long) -> Unit,
     onToggleSelect: (Long) -> Unit,
-    onEnterSelect: (Long) -> Unit
+    onEnterSelect: (Long) -> Unit,
+    generatingActivity: Boolean = false,
+    onGenerateActivity: () -> Unit = {}
 ) {
     if (playlists.isEmpty()) {
         Column(
@@ -104,10 +109,31 @@ fun PlaylistListPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                "Crea una, marca canciones y ordénalas arrastrando.",
+                "Crea una a mano o arma Entrenar, Trabajar y Relajar con el análisis de tu biblioteca. Si no hay música relajante, esa lista no se crea.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+                onClick = onGenerateActivity,
+                enabled = !generatingActivity
+            ) {
+                if (generatingActivity) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                } else {
+                    Icon(
+                        Icons.Rounded.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(if (generatingActivity) "Analizando perfiles…" else "Armar listas de actividad")
+            }
         }
         return
     }
@@ -148,8 +174,10 @@ fun PlaylistListPanel(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    val countLabel =
+                        "${playlist.trackCount} ${if (playlist.trackCount == 1) "canción" else "canciones"}"
                     Text(
-                        "${playlist.trackCount} ${if (playlist.trackCount == 1) "canción" else "canciones"}",
+                        if (PlaylistEntity.isActivity(playlist.source)) "Actividad · $countLabel" else countLabel,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

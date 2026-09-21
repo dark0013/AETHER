@@ -5,7 +5,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -28,8 +27,9 @@ fun DensityTapeWidget(
     snapToOnsets: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val skin = com.example.aether.ui.skin.LocalSkin.current
+    val primaryColor = skin.colors.visualizerStart
+    val onSurfaceColor = skin.colors.onSurface
 
     Canvas(
         modifier = modifier
@@ -64,10 +64,9 @@ fun DensityTapeWidget(
             )
         }
 
-        // Playhead
         val playheadX = if (duration > 0) (progress.toFloat() / duration) * size.width else 0f
         drawLine(
-            color = Color.White,
+            color = onSurfaceColor,
             start = Offset(playheadX, 0f),
             end = Offset(playheadX, size.height),
             strokeWidth = 2.dp.toPx()

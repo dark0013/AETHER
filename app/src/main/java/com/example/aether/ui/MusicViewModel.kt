@@ -82,6 +82,9 @@ class MusicViewModel(
     val playlists: StateFlow<List<PlaylistSummary>> = repository.getPlaylistsFlow()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    private val _generatingActivityPlaylists = MutableStateFlow(false)
+    val generatingActivityPlaylists: StateFlow<Boolean> = _generatingActivityPlaylists.asStateFlow()
+
     val analysisStatuses: StateFlow<Map<Long, String>> = repository.observeAnalysisStatuses()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyMap())
 
@@ -471,6 +474,40 @@ class MusicViewModel(
         if (id == null) return "" to emptyList()
         val playlist = repository.getPlaylist(id) ?: return "" to emptyList()
         return playlist.name to repository.getPlaylistSongs(id)
+    }
+
+    fun generateActivityPlaylists() {
+        if (_generatingActivityPlaylists.value) return
+        viewModelScope.launch {
+            _generatingActivityPlaylists.value = true
+            try {
+                val result = repository.syncActivityPlaylists()
+                _userNotice.value = UserNotice(activityPlaylistNotice(result))
+            } finally {
+                _generatingActivityPlaylists.value = false
+            }
+        }
+    }
+
+    private fun activityPlaylistNotice(result: MusicRepository.ActivityPlaylistSyncResult): String {
+        if (result.libraryCount == 0) {
+            return "Tu biblioteca está vacía"
+        }
+        if (result.analyzedCount == 0) {
+            return "Todavía no hay canciones analizadas. Espera al análisis en segundo plano."
+        }
+        val made = result.upserted.joinToString(", ") { "${it.first.displayName} (${it.second})" }
+        val missing = result.skipped.map { it.displayName }
+        val pending = result.libraryCount > result.analyzedCount
+        val pendingNote = if (pending) " Aún hay canciones sin analizar." else ""
+        return when {
+            result.upserted.isEmpty() ->
+                "Ninguna canción encaja en Entrenar, Trabajar o Relajar.$pendingNote"
+            missing.isEmpty() ->
+                "Listas listas: $made."
+            else ->
+                "Listas: $made. ${missing.joinToString(" y ")}: no hay música con ese perfil en tu biblioteca.$pendingNote"
+        }
     }
 
     fun savePlaylist(id: Long?, name: String, songIds: List<Long>, onSaved: (Long) -> Unit) {

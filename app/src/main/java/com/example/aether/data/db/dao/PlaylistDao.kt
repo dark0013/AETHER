@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.Flow
 interface PlaylistDao {
     @Query(
         """
-        SELECT p.id, p.name, p.createdAtMs, p.updatedAtMs, COUNT(t.id) AS trackCount
+        SELECT p.id, p.name, p.createdAtMs, p.updatedAtMs, p.source, COUNT(t.id) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_tracks t ON t.playlistId = p.id
         GROUP BY p.id
@@ -27,6 +27,12 @@ interface PlaylistDao {
 
     @Query("SELECT * FROM playlists WHERE id = :id")
     suspend fun getPlaylist(id: Long): PlaylistEntity?
+
+    @Query("SELECT * FROM playlists WHERE source = :source LIMIT 1")
+    suspend fun getBySource(source: String): PlaylistEntity?
+
+    @Query("DELETE FROM playlists WHERE source = :source")
+    suspend fun deleteBySource(source: String)
 
     @Query(
         """

@@ -30,7 +30,7 @@ import com.example.aether.data.db.entities.SongEntity
         PlaylistEntity::class,
         PlaylistTrackEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AetherDatabase : RoomDatabase() {
@@ -52,7 +52,7 @@ abstract class AetherDatabase : RoomDatabase() {
                     AetherDatabase::class.java,
                     "aether_database"
                 )
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -102,6 +102,15 @@ abstract class AetherDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE sessions ADD COLUMN startReasons TEXT NOT NULL DEFAULT ''"
                 )
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE playlists ADD COLUMN source TEXT NOT NULL DEFAULT 'user'"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playlists_source ON playlists(source)")
             }
         }
     }
